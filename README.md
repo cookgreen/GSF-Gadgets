@@ -14,5 +14,9 @@ This code repository is intended to provide some basic desktop gadgets based on 
 * Internet Radio
 
 You need to clone the repository and save it to `C:/Users/[Your User Name]/AppData/Roaming/GSF/gadgets` on your Windows system.
+
+## Screenshots
+### Digital Clock  
+<img width="400" alt="digital-clock" src="Screenshots/digital-clock.png" />
   
 This repository complies with the LGPL license.  
