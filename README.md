@@ -1,4 +1,5 @@
-# GSF Gadgets
+<img width="800" alt="gsf-logo-long" src="https://github.com/user-attachments/assets/b130e591-0a59-4993-987f-ec4e4e0369dd" />
+  
 [Gadget System Framework (GSF)](https://github.com/cookgreen/GadgetSystemFramework) based Desktop Gadgets Collection
 
 GSF is a desktop gadget framework developed in Python. This framework aims to provide users and developers with a set of desktop gadgets for Windows 10/11.
