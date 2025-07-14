@@ -1,0 +1,1 @@
+This is the weather query which allow you query today and next few days weather

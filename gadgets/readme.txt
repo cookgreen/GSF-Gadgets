@@ -1,0 +1,1 @@
+all gadgets need to be put to C:\Users\<Your User Name>\AppData\Roaming\GSF\gadgets

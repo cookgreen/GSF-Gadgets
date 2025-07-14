@@ -1,0 +1,1 @@
+This is the digital timer which can set time
