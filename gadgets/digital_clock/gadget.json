@@ -1,0 +1,6 @@
+{
+    "name": "Digital Clock",
+    "version": "1.0",
+    "description": "a digital clock based on GSF",
+    "entry_point": "main.py"
+}
