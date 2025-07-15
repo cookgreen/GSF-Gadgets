@@ -19,4 +19,7 @@ You need to clone the repository and save it to `C:/Users/[Your User Name]/AppDa
 ### Digital Clock  
 <img width="400" alt="digital-clock" src="Screenshots/digital-clock.png" />
   
+### Digital Timer  
+<img width="400" alt="digital-clock" src="Screenshots/digital-timer.png" />
+  
 This repository complies with the LGPL license.  
