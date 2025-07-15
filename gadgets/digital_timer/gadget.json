@@ -1,0 +1,6 @@
+{
+    "name": "Digital Timer",
+    "version": "1.0",
+    "description": "a digital timer based on GSF",
+    "entry_point": "main.py"
+}
