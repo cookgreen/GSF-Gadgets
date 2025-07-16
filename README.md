@@ -21,6 +21,11 @@ You need to clone the repository and save it to `C:/Users/[Your User Name]/AppDa
   
 ### Digital Timer  
 <img width="400" alt="digital-clock" src="Screenshots/digital-timer.png" />
+
+## Contact
+If you need some unique desktop gadgets, you can contact me and I can customize and develop desktop gadgets for you.  
+  
+__Discord:__ DoDoCat#1900  
   
 ## License
 GNU LGPL
