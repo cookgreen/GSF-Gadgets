@@ -1,1 +1,1 @@
-This is the internet radio which based on Radiocast
+To run this gadget or console version, you need VLC and python-vlc installed in your computer.
