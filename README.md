@@ -24,6 +24,10 @@ You need to clone the repository and save it to `C:/Users/[Your User Name]/AppDa
 ### Digital Timer  
 <img width="400" alt="digital-clock" src="Screenshots/digital-timer.png" />
 
+## Attention
+### Internet Radio
+To run this gadget, you need to install `python-vlc` and `vlc` firstly
+
 ## Contact
 If you need some unique desktop gadgets, you can contact me and I can customize and develop desktop gadgets for you.  
   
