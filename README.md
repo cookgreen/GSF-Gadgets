@@ -6,12 +6,14 @@ GSF is a desktop gadget framework developed in Python. This framework aims to pr
 
 This code repository is intended to provide some basic desktop gadgets based on GSF, including but not limited to:
 
-* Digital Clock
-* Digital timer
-* Stock Index Viewer
-* Weather query
-* Gmail Notification
-* Internet Radio
+|Name                 | Description                                                                             |
+|---------------------|-----------------------------------------------------------------------------------------|
+| Digital Clock       | A gadget for checking real time, based on GSF                                           |  
+| Digital timer       | A gadget that can set time and reminder, based on GSF                                   |  
+| Stock Index Viewer  | A gadget for viewing stock market dynamics in real time, supporting NASDAQ and A shares |
+| Weather query       | A weather query gadget based on GSF                                                     |
+| Gmail Notification  | A gadget that notifies you of new Gmail messages                                        |
+| Internet Radio      | A small tool for collecting and playing Internet radio stations                         |
 
 You need to clone the repository and save it to `C:/Users/[Your User Name]/AppData/Roaming/GSF/gadgets` on your Windows system.
 
