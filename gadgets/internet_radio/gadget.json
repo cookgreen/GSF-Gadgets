@@ -1,0 +1,6 @@
+{
+    "name": "Internet Radio",
+    "version": "1.0",
+    "description": "a GSF-based gadget which collect and play internet radio FM",
+    "entry_point": "main.py"
+}
