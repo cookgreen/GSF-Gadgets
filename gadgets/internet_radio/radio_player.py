@@ -7,7 +7,7 @@ import threading
 class RadioPlayer():
     def __init__(self):
         self.player_worker = None
-        self.vlc_instance = vlc.Instance('--audio-visual=goom')
+        self.vlc_instance = vlc.Instance()
         self.vlc_player = self.vlc_instance.media_player_new()
     
     def playFM(self, radio_data):
