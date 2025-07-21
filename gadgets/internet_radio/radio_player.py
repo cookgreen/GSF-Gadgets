@@ -21,7 +21,7 @@ class RadioPlayer():
             self.vlc_player.stop()
         else:
             self.vlc_player.play()
-            
+        
         self.player_worker = threading.Thread(target=self.playerFM_worker, kwargs={"url": url})
         self.player_worker.start()
             

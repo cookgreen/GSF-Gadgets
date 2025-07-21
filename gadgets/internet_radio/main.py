@@ -96,36 +96,38 @@ class InternetRadioGadget(BaseGadget):
         
         self.btnPlay = QImageButton((168, 124), (48, 48), 
             QImage(os.path.join(self.gadget_assets_path, "button-play.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-play.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-play.png")),
+            QImage(os.path.join(self.gadget_assets_path, "button-play-hover.png")),
+            QImage(os.path.join(self.gadget_assets_path, "button-play-disable.png")),
             callback=self.playFM)
+        self.btnPlay.isEnabled = False
         
         self.btnPause = QImageButton((168, 124), (48, 48), 
             QImage(os.path.join(self.gadget_assets_path, "button-pause.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-pause.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-pause.png")),
+            QImage(os.path.join(self.gadget_assets_path, "button-pause-hover.png")),
+            QImage(os.path.join(self.gadget_assets_path, "button-pause-disable.png")),
             callback=self.pauseFM)
+        self.btnPause.isEnabled = False
         
         self.btnRandom = QImageButton((76, 131), (34, 34), 
             QImage(os.path.join(self.gadget_assets_path, "button-random.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-random.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-random.png")),
+            QImage(os.path.join(self.gadget_assets_path, "button-random-hover.png")),
+            QImage(os.path.join(self.gadget_assets_path, "button-random-disable.png")),
             callback=self.randomPlayFM)
+        self.btnRandom.isEnabled = False
         
         self.btnStop = QImageButton((275, 131), (34, 34), 
             QImage(os.path.join(self.gadget_assets_path, "button-stop.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-stop.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-stop.png")),
+            QImage(os.path.join(self.gadget_assets_path, "button-stop-hover.png")),
+            QImage(os.path.join(self.gadget_assets_path, "button-stop-disable.png")),
             callback=self.stopFM)
+        self.btnStop.isEnabled = False
             
-        self.custom_sub_widgets.append(self.btnPlay)
-        self.custom_sub_widgets.append(self.btnPause)
         self.custom_sub_widgets.append(self.btnRandom)
         self.custom_sub_widgets.append(self.btnStop)
+        self.custom_sub_widgets.append(self.btnPlay)
     
     def initization_worker(self):
         while True:
-            print(f"Total data: {len(self.api.radio_data)}")
             if len(self.api.radio_data) > 0:
                 break
                 
@@ -134,6 +136,11 @@ class InternetRadioGadget(BaseGadget):
         time.sleep(1)
         
         self.status_report = "Ready"
+        
+        self.btnPlay.isEnabled = True
+        self.btnPause.isEnabled = True
+        self.btnRandom.isEnabled = True
+        self.btnStop.isEnabled = True
     
     def initization(self):
         self.api.read_data_all()
@@ -147,7 +154,6 @@ class InternetRadioGadget(BaseGadget):
         radio = self.api.radio_data[self.current_playing_index]
         
         self.status_report = f"Playing {radio['name']}";
-        
         self.player.playFM(radio)
     
     def pauseFM(self):
@@ -195,10 +201,23 @@ class InternetRadioGadget(BaseGadget):
         target_rect = QRect(0, 0, 384, 178)
         painter.drawImage(target_rect, self.main_panel)
         
+        self.btnRandom.paint(painter)
+        self.btnStop.paint(painter)
+        
         if self.player.vlc_player.is_playing():
             self.btnPause.paint(painter)
+            
+            if self.btnPause not in self.custom_sub_widgets:
+                self.custom_sub_widgets.append(self.btnPause)
+            if self.btnPlay in self.custom_sub_widgets:
+                self.custom_sub_widgets.remove(self.btnPlay)
         else:
             self.btnPlay.paint(painter)
+            
+            if self.btnPlay not in self.custom_sub_widgets:
+                self.custom_sub_widgets.append(self.btnPlay)
+            if self.btnPause in self.custom_sub_widgets:
+                self.custom_sub_widgets.remove(self.btnPause)
         
         painter.setFont(QFont("Arial", 15)) # Set font family and size
         painter.setPen(Qt.GlobalColor.green) # Set text color to blue
