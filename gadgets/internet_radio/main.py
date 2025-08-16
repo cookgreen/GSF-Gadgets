@@ -137,6 +137,8 @@ class InternetRadioGadget(BaseGadget):
         
         self.status_report = "Ready"
         
+        self.randomPlayFM()
+        
         self.btnPlay.isEnabled = True
         self.btnPause.isEnabled = True
         self.btnRandom.isEnabled = True
@@ -153,7 +155,7 @@ class InternetRadioGadget(BaseGadget):
     def playFM(self):
         radio = self.api.radio_data[self.current_playing_index]
         
-        self.status_report = f"Playing {radio['name']}";
+        self.status_report = "Playing...";
         self.player.playFM(radio)
     
     def pauseFM(self):
@@ -164,7 +166,7 @@ class InternetRadioGadget(BaseGadget):
         self.current_playing_index = random.randint(0, len(self.api.radio_data) - 1)
         radio = self.api.radio_data[self.current_playing_index]
         
-        self.status_report = f"Playing {radio['name']}";
+        self.status_report = "Playing...";
         
         self.player.playFM(radio)
     
