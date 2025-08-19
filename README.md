@@ -22,7 +22,10 @@ You need to clone the repository and save it to `C:/Users/[Your User Name]/AppDa
 <img width="400" alt="digital-clock" src="Screenshots/digital-clock.png" />
   
 ### Digital Timer  
-<img width="400" alt="digital-clock" src="Screenshots/digital-timer.png" />
+<img width="400" alt="digital-timer" src="Screenshots/digital-timer.png" />
+  
+### Internet Radio  
+<img width="400" alt="internet-radio" src="Screenshots/internet-radio.png" />
 
 ## Attention
 ### Internet Radio
