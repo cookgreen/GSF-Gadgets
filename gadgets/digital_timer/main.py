@@ -12,6 +12,8 @@ TIMER_STATUS_RESET = 999
 TIMER_STATUS_RUNNING = 900
 TIMER_STATUS_PAUSE = 901
 
+from vlc_player import *
+
 class QImageButton:
     def __init__(self,
                  pos: tuple[int, int], 
@@ -74,6 +76,9 @@ class TimerGadget(BaseGadget):
         self.setMouseTracking(True)
         self.gadget_path = gadget_path
         self.gadget_assets_path = os.path.join(self.gadget_path, "assets")
+        self.gadget_sounds_path = os.path.join(self.gadget_path, "sounds")
+        
+        self.player = VlcPlayer()
         
         # --- specific logic ---
         self.setWindowTitle('Digital Gadget')
@@ -103,6 +108,10 @@ class TimerGadget(BaseGadget):
         self.current_minute = 0
         self.current_second = 0
         self.custom_sub_widgets = []
+        
+        self.sound_timer_setup =  os.path.join(self.gadget_sounds_path, "timer_setup.wav")
+        self.sound_timer_tick =  os.path.join(self.gadget_sounds_path, "timer_ticking.wav")
+        self.sound_timer_alarm =  os.path.join(self.gadget_sounds_path, "timer_alarm.wav")
         
         self.btnIncreaseHour = QImageButton((43, 17), (45, 26), 
             QImage(os.path.join(self.gadget_assets_path, "button-increase.png")),
@@ -185,6 +194,7 @@ class TimerGadget(BaseGadget):
         super().mousePressEvent(event) # Call base class implementation
     
     def timer_start(self):
+        self.player.playSound(self.sound_timer_setup)
         if self.current_hour == 0 and self.current_minute == 0 and self.current_second == 0:
             msg_error = QMessageBox(self)
             msg_error.setWindowTitle("Error")
@@ -197,33 +207,41 @@ class TimerGadget(BaseGadget):
         self.timer_status = TIMER_STATUS_RUNNING
     
     def timer_pause(self):
+        self.player.playSound(self.sound_timer_setup)
         self.timer_status = TIMER_STATUS_PAUSE
     
     def timer_stop(self):
+        self.player.playSound(self.sound_timer_setup)
         self.timer_status = TIMER_STATUS_RESET
     
     def increaseHour(self):
         if self.current_hour < 59:
+            self.player.playSound(self.sound_timer_setup)
             self.current_hour = self.current_hour + 1
         
     def increaseMinute(self):
         if self.current_minute < 59:
+            self.player.playSound(self.sound_timer_setup)
             self.current_minute = self.current_minute + 1
         
     def increaseSecond(self):
         if self.current_second < 59:
+            self.player.playSound(self.sound_timer_setup)
             self.current_second = self.current_second + 1
         
     def decreaseHour(self):
         if self.current_hour > 0:
+            self.player.playSound(self.sound_timer_setup)
             self.current_hour = self.current_hour - 1
         
     def decreaseMinute(self):
         if self.current_minute > 0:
+            self.player.playSound(self.sound_timer_setup)
             self.current_minute = self.current_minute - 1
         
     def decreaseSecond(self):
         if self.current_second > 0:
+            self.player.playSound(self.sound_timer_setup)
             self.current_second = self.current_second - 1
         
     def paintEvent(self, event):
@@ -243,19 +261,15 @@ class TimerGadget(BaseGadget):
                 self.current_hour = 0
                 self.current_minute = 0
                 self.current_second = 0
-                
-                self.btnIncreaseHour.isEnabled = True
-                self.btnIncreaseMinute.isEnabled = True
-                self.btnIncreaseSecond.isEnabled = True
-                self.btnDecreaseHour.isEnabled = True
-                self.btnDecreaseMinute.isEnabled = True
-                self.btnDecreaseSecond.isEnabled = True
                 self.hasReseted = True
-                
-        elif self.timer_status == TIMER_STATUS_RUNNING:
-            self.btnPause.paint(painter)
-            self.hasReseted = False
-                
+            
+            self.btnIncreaseHour.isEnabled = True
+            self.btnIncreaseMinute.isEnabled = True
+            self.btnIncreaseSecond.isEnabled = True
+            self.btnDecreaseHour.isEnabled = True
+            self.btnDecreaseMinute.isEnabled = True
+            self.btnDecreaseSecond.isEnabled = True
+        else:
             self.btnIncreaseHour.isEnabled = False
             self.btnIncreaseMinute.isEnabled = False
             self.btnIncreaseSecond.isEnabled = False
@@ -263,35 +277,29 @@ class TimerGadget(BaseGadget):
             self.btnDecreaseMinute.isEnabled = False
             self.btnDecreaseSecond.isEnabled = False
             
-            if self.current_second > 0:
-                self.current_second = self.current_second - 1
-            elif self.current_second == 0:
-                if self.current_minute > 0:
-                    self.current_minute = self.current_minute - 1
-                    self.current_second = 59
-                elif self.current_minute == 0:
-                    if self.current_hour > 0:
-                        self.current_hour = self.current_hour - 1
-                        self.current_minute = 59
-                        self.current_minute = 59
-                    elif self.current_hour == 0:
-                        msg_info = QMessageBox(self)
-                        msg_info.setWindowTitle("Notice")
-                        msg_info.setText("Time is up!")
-                        msg_info.setIcon(QMessageBox.Icon.Information)
-                        msg_info.setStandardButtons(QMessageBox.StandardButton.Ok)
-                        msg_info.exec()
-                        self.timer_status = TIMER_STATUS_RESET
-        
-        elif self.timer_status == TIMER_STATUS_PAUSE:
-            self.btnStart.paint(painter)
+            if self.timer_status == TIMER_STATUS_RUNNING:
+                #self.player.playSound(self.sound_timer_tick)
                 
-            self.btnIncreaseHour.isEnabled = False
-            self.btnIncreaseMinute.isEnabled = False
-            self.btnIncreaseSecond.isEnabled = False
-            self.btnDecreaseHour.isEnabled = False
-            self.btnDecreaseMinute.isEnabled = False
-            self.btnDecreaseSecond.isEnabled = False
+                self.btnPause.paint(painter)
+                self.hasReseted = False
+                
+                if self.current_second > 0:
+                    self.current_second = self.current_second - 1
+                elif self.current_second == 0:
+                    if self.current_minute > 0:
+                        self.current_minute = self.current_minute - 1
+                        self.current_second = 59
+                    elif self.current_minute == 0:
+                        if self.current_hour > 0:
+                            self.current_hour = self.current_hour - 1
+                            self.current_minute = 59
+                            self.current_minute = 59
+                        elif self.current_hour == 0:
+                            self.timer_status = TIMER_STATUS_RESET
+                            self.player.playSound(self.sound_timer_alarm)
+            
+            elif self.timer_status == TIMER_STATUS_PAUSE:
+                self.btnStart.paint(painter)
         
         self.render_digitals(self.current_hour, painter, (14, 54), (48, 83), [7])
         self.render_digitals(self.current_minute, painter, (141, 54), (48, 83),[7])
