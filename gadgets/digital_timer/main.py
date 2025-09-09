@@ -1,387 +1,298 @@
 import sys
 import os
-from typing import Optional, Callable, Tuple, Any
+from typing import Optional, Callable, Dict, List
 from PySide6.QtWidgets import *
 from PySide6.QtGui import *
 from PySide6.QtCore import *
+from enum import Enum, auto
 
-# dynamic add GSF core lib into Python dir
 from gsf.gadget_base import BaseGadget
-
-TIMER_STATUS_RESET = 999
-TIMER_STATUS_RUNNING = 900
-TIMER_STATUS_PAUSE = 901
 
 from vlc_player import *
 
+class TimerStatus(Enum):
+    RESET = auto()
+    RUNNING = auto()
+    PAUSE = auto()
+
 class QImageButton:
     def __init__(self,
-                 pos: tuple[int, int], 
-                 size: tuple[int, int], 
-                 normal_image: QImage, 
-                 hover_image: QImage,
-                 disabled_image: QImage,
-                 callback: Optional[Callable[..., None]]=None):
-        self.pos = pos
-        self.size = size
+                 pos: tuple[int, int],
+                 size: tuple[int, int],
+                 normal_pixmap: QPixmap,
+                 hover_pixmap: QPixmap,
+                 disabled_pixmap: QPixmap,
+                 callback: Optional[Callable[..., None]] = None):
+        self.rect = QRect(pos[0], pos[1], size[0], size[1])
         
-        self.normal_image = normal_image
-        self.hover_image = hover_image
-        self.disabled_image = disabled_image
+        self.normal_pixmap = normal_pixmap
+        self.hover_pixmap = hover_pixmap
+        self.disabled_pixmap = disabled_pixmap
         
         self.callback = callback
         
         self.hovered = False
         self.isEnabled = True
-    
-    def checkIsEnter(self, mousePosX, mousePosY):
-        if mousePosX > self.pos[0] and mousePosX < self.pos[0] + self.size[0]:
-            if mousePosY > self.pos[1] and mousePosY < self.pos[1] + self.size[1]:
-                return True
+        self.isVisible = True 
+
+    def checkIsEnter(self, point: QPoint):
+        return self.rect.contains(point)
+
+    def mouseMove(self, point: QPoint) -> bool:
+        if not self.isEnabled:
+            return False
         
+        is_over = self.checkIsEnter(point)
+        if is_over != self.hovered:
+            self.hovered = is_over
+            return True 
         return False
-    
-    def mouseMove(self, mousePosX, mousePosY):
-        if not self.isEnabled:
-            return
-        
-        if self.checkIsEnter(mousePosX, mousePosY):
-            self.hovered = True
-        else:
-            self.hovered = False
-    
+
     def mousePress(self):
-        if not self.isEnabled:
-            return
-        
-        if self.callback and callable(self.callback):
+        if self.isEnabled and self.callback:
             self.callback()
             
     def paint(self, painter: QPainter):
-        target_rect = QRect(self.pos[0], self.pos[1], self.size[0], self.size[1])
-        
+        if not self.isVisible:
+            return
+
         if not self.isEnabled:
-            painter.drawImage(target_rect, self.disabled_image)
+            painter.drawPixmap(self.rect, self.disabled_pixmap)
+        elif self.hovered:
+            painter.drawPixmap(self.rect, self.hover_pixmap)
         else:
-            if not self.hovered:
-                painter.drawImage(target_rect, self.normal_image)
-            else:
-                painter.drawImage(target_rect, self.hover_image)
-    
+            painter.drawPixmap(self.rect, self.normal_pixmap)
+
 class TimerGadget(BaseGadget):
     def __init__(self, gadget_path):
-        # must call parent class constructor
         super().__init__(gadget_path)
         
-        self.setMouseTracking(True)
         self.gadget_path = gadget_path
         self.gadget_assets_path = os.path.join(self.gadget_path, "assets")
         self.gadget_sounds_path = os.path.join(self.gadget_path, "sounds")
         
-        self.player = VlcPlayer()
-        
-        # --- specific logic ---
+        self.setMouseTracking(True)
         self.setWindowTitle('Digital Gadget')
         self.resize(384, 191)
-        
-        self.timer_status = TIMER_STATUS_RESET
-        self.hasReseted = True
-        
-        # --- load images ---
-        self.timer_panel = QImage(os.path.join(self.gadget_assets_path, "timer_panel.png"))
-        self.digitalNumber0 = QImage(os.path.join(self.gadget_assets_path, "digital_number_0.png"))
-        self.digitalNumber1 = QImage(os.path.join(self.gadget_assets_path, "digital_number_1.png"))
-        self.digitalNumber2 = QImage(os.path.join(self.gadget_assets_path, "digital_number_2.png"))
-        self.digitalNumber3 = QImage(os.path.join(self.gadget_assets_path, "digital_number_3.png"))
-        self.digitalNumber4 = QImage(os.path.join(self.gadget_assets_path, "digital_number_4.png"))
-        self.digitalNumber5 = QImage(os.path.join(self.gadget_assets_path, "digital_number_5.png"))
-        self.digitalNumber6 = QImage(os.path.join(self.gadget_assets_path, "digital_number_6.png"))
-        self.digitalNumber7 = QImage(os.path.join(self.gadget_assets_path, "digital_number_7.png"))
-        self.digitalNumber8 = QImage(os.path.join(self.gadget_assets_path, "digital_number_8.png"))
-        self.digitalNumber9 = QImage(os.path.join(self.gadget_assets_path, "digital_number_9.png"))
 
-        timer = QTimer(self)
-        timer.timeout.connect(self.update) # update() will trigger paintEvent
-        timer.start(1000)
+        self.player = VlcPlayer()
+        self.assets: Dict[str, QPixmap] = {}
+        self.digit_pixmaps: List[QPixmap] = []
+        
+        self._load_assets()
+
+        self.timer_status = TimerStatus.RESET
         
         self.current_hour = 0
         self.current_minute = 0
         self.current_second = 0
-        self.custom_sub_widgets = []
         
-        self.sound_timer_setup =  os.path.join(self.gadget_sounds_path, "timer_setup.wav")
-        self.sound_timer_tick =  os.path.join(self.gadget_sounds_path, "timer_ticking.wav")
-        self.sound_timer_alarm =  os.path.join(self.gadget_sounds_path, "timer_alarm.wav")
+        self.logic_timer = QTimer(self)
+        self.logic_timer.timeout.connect(self._update_timer_state)
+        self.logic_timer.start(1000)
+
+        self.hovered_button: Optional[QImageButton] = None
+        self.all_buttons: List[QImageButton] = []
+        self._create_buttons()
+        self._update_button_states()
+
+    def _load_assets(self):
+        asset_files = [
+            "timer_panel.png",
+            "button-increase.png", "button-increase-hover.png", "button-increase-disable.png",
+            "button-decrease.png", "button-decrease-hover.png", "button-decrease-disable.png",
+            "control-button-play.png", "control-button-play-hover.png", "control-button-play-disable.png",
+            "control-button-pause.png", "control-button-pause-hover.png", "control-button-pause-disable.png",
+            "control-button-stop.png", "control-button-stop-hover.png", "control-button-stop-disable.png",
+        ]
+        for i in range(10):
+            asset_files.append(f"digital_number_{i}.png")
+
+        for filename in asset_files:
+            key = filename.split('.')[0]
+            path = os.path.join(self.gadget_assets_path, filename)
+            self.assets[key] = QPixmap(path)
         
-        self.btnIncreaseHour = QImageButton((43, 17), (45, 26), 
-            QImage(os.path.join(self.gadget_assets_path, "button-increase.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-increase-hover.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-increase-disable.png")),
+        self.digit_pixmaps = [self.assets[f'digital_number_{i}'] for i in range(10)]
+
+    def _create_buttons(self):
+        self.btnIncreaseHour = QImageButton((43, 17), (45, 26),
+            self.assets["button-increase"], self.assets["button-increase-hover"], self.assets["button-increase-disable"],
             callback=self.increaseHour)
-        self.btnIncreaseMinute = QImageButton((170, 17), (45, 26), 
-            QImage(os.path.join(self.gadget_assets_path, "button-increase.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-increase-hover.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-increase-disable.png")),
+        self.btnIncreaseMinute = QImageButton((170, 17), (45, 26),
+            self.assets["button-increase"], self.assets["button-increase-hover"], self.assets["button-increase-disable"],
             callback=self.increaseMinute)
-        self.btnIncreaseSecond = QImageButton((297, 17), (45, 26), 
-            QImage(os.path.join(self.gadget_assets_path, "button-increase.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-increase-hover.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-increase-disable.png")),
+        self.btnIncreaseSecond = QImageButton((297, 17), (45, 26),
+            self.assets["button-increase"], self.assets["button-increase-hover"], self.assets["button-increase-disable"],
             callback=self.increaseSecond)
         
-        self.btnDecreaseHour = QImageButton((43, 147), (45, 26), 
-            QImage(os.path.join(self.gadget_assets_path, "button-decrease.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-decrease-hover.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-decrease-disable.png")),
+        self.btnDecreaseHour = QImageButton((43, 147), (45, 26),
+            self.assets["button-decrease"], self.assets["button-decrease-hover"], self.assets["button-decrease-disable"],
             callback=self.decreaseHour)
-        self.btnDecreaseMinute = QImageButton((170, 147), (45, 26), 
-            QImage(os.path.join(self.gadget_assets_path, "button-decrease.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-decrease-hover.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-decrease-disable.png")),
+        self.btnDecreaseMinute = QImageButton((170, 147), (45, 26),
+            self.assets["button-decrease"], self.assets["button-decrease-hover"], self.assets["button-decrease-disable"],
             callback=self.decreaseMinute)
-        self.btnDecreaseSecond = QImageButton((297, 147), (45, 26), 
-            QImage(os.path.join(self.gadget_assets_path, "button-decrease.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-decrease-hover.png")),
-            QImage(os.path.join(self.gadget_assets_path, "button-decrease-disable.png")),
+        self.btnDecreaseSecond = QImageButton((297, 147), (45, 26),
+            self.assets["button-decrease"], self.assets["button-decrease-hover"], self.assets["button-decrease-disable"],
             callback=self.decreaseSecond)
-        
-        self.btnStart = QImageButton((117, 161), (22, 22), 
-            QImage(os.path.join(self.gadget_assets_path, "control-button-play.png")),
-            QImage(os.path.join(self.gadget_assets_path, "control-button-play-hover.png")),
-            QImage(os.path.join(self.gadget_assets_path, "control-button-play-disable.png")),
+
+        self.btnStart = QImageButton((117, 161), (22, 22),
+            self.assets["control-button-play"], self.assets["control-button-play-hover"], self.assets["control-button-play-disable"],
             callback=self.timer_start)
-        self.btnPause = QImageButton((117, 161), (22, 22), 
-            QImage(os.path.join(self.gadget_assets_path, "control-button-pause.png")),
-            QImage(os.path.join(self.gadget_assets_path, "control-button-pause-hover.png")),
-            QImage(os.path.join(self.gadget_assets_path, "control-button-pause-disable.png")),
+        self.btnPause = QImageButton((117, 161), (22, 22),
+            self.assets["control-button-pause"], self.assets["control-button-pause-hover"], self.assets["control-button-pause-disable"],
             callback=self.timer_pause)
-        self.btnStop = QImageButton((245, 161), (22, 22), 
-            QImage(os.path.join(self.gadget_assets_path, "control-button-stop.png")),
-            QImage(os.path.join(self.gadget_assets_path, "control-button-stop-hover.png")),
-            QImage(os.path.join(self.gadget_assets_path, "control-button-stop-disable.png")),
+        self.btnStop = QImageButton((245, 161), (22, 22),
+            self.assets["control-button-stop"], self.assets["control-button-stop-hover"], self.assets["control-button-stop-disable"],
             callback=self.timer_stop)
         
-        self.custom_sub_widgets.append(self.btnIncreaseHour)
-        self.custom_sub_widgets.append(self.btnIncreaseMinute)
-        self.custom_sub_widgets.append(self.btnIncreaseSecond)
-        self.custom_sub_widgets.append(self.btnDecreaseHour)
-        self.custom_sub_widgets.append(self.btnDecreaseMinute)
-        self.custom_sub_widgets.append(self.btnDecreaseSecond)
+        self.all_buttons = [
+            self.btnIncreaseHour, self.btnIncreaseMinute, self.btnIncreaseSecond,
+            self.btnDecreaseHour, self.btnDecreaseMinute, self.btnDecreaseSecond,
+            self.btnStart, self.btnPause, self.btnStop
+        ]
+
+    def _update_timer_state(self):
+        if self.timer_status != TimerStatus.RUNNING:
+            return
+
+        total_seconds = self.current_hour * 3600 + self.current_minute * 60 + self.current_second
+        if total_seconds > 0:
+            total_seconds -= 1
+            self.current_hour = total_seconds // 3600
+            self.current_minute = (total_seconds % 3600) // 60
+            self.current_second = total_seconds % 60
+            #self.player.playSound(os.path.join(self.gadget_sounds_path, "timer_ticking.wav"))
+        else:
+            self.timer_status = TimerStatus.RESET
+            self.player.playSound(os.path.join(self.gadget_sounds_path, "timer_alarm.wav"))
+            self._update_button_states()
         
-        self.custom_sub_widgets.append(self.btnStart)
-        self.custom_sub_widgets.append(self.btnPause)
-        self.custom_sub_widgets.append(self.btnStop)
-    
+        self.update()
+
+    def _update_button_states(self):
+        is_reset_state = self.timer_status == TimerStatus.RESET
+        
+        for btn in [self.btnIncreaseHour, self.btnIncreaseMinute, self.btnIncreaseSecond,
+                    self.btnDecreaseHour, self.btnDecreaseMinute, self.btnDecreaseSecond]:
+            btn.isEnabled = is_reset_state
+
+        self.btnStart.isVisible = (self.timer_status != TimerStatus.RUNNING)
+        self.btnPause.isVisible = (self.timer_status == TimerStatus.RUNNING)
+        
+        if is_reset_state:
+            self.current_hour = 0
+            self.current_minute = 0
+            self.current_second = 0
+
+        self.update()
+
+    # --- Event Handlers ---
+
     def mouseMoveEvent(self, event: QMouseEvent):
-        mousePosX = event.pos().x()
-        mousePosY = event.pos().y()
+        current_hover = None
+        for btn in self.all_buttons:
+            if btn.isVisible and btn.checkIsEnter(event.pos()):
+                current_hover = btn
+                break
         
-        for custom_sub_widget in self.custom_sub_widgets:
-            custom_sub_widget.mouseMove(mousePosX, mousePosY)
+        if self.hovered_button is not current_hover:
+            if self.hovered_button:
+                self.hovered_button.hovered = False
+            if current_hover:
+                current_hover.hovered = True
             
+            self.hovered_button = current_hover
+            self.update()
+
         super().mouseMoveEvent(event)
-    
+
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            mousePosX = event.pos().x()
-            mousePosY = event.pos().y()
-            
-            for custom_sub_widget in self.custom_sub_widgets:
-                if custom_sub_widget.checkIsEnter(mousePosX, mousePosY):
-                    custom_sub_widget.mousePress()
+            for btn in self.all_buttons:
+                if btn.isVisible and btn.isEnabled and btn.checkIsEnter(event.pos()):
+                    btn.mousePress()
                     return
-                        
-        super().mousePressEvent(event) # Call base class implementation
+        super().mousePressEvent(event)
     
+    # --- Callback Methods ---
     def timer_start(self):
-        self.player.playSound(self.sound_timer_setup)
-        if self.current_hour == 0 and self.current_minute == 0 and self.current_second == 0:
-            msg_error = QMessageBox(self)
-            msg_error.setWindowTitle("Error")
-            msg_error.setText("You must setup a valid time!")
-            msg_error.setIcon(QMessageBox.Icon.Warning)
-            msg_error.setStandardButtons(QMessageBox.StandardButton.Ok)
-            msg_error.exec()
+        total_seconds = self.current_hour * 3600 + self.current_minute * 60 + self.current_second
+        if total_seconds <= 0:
+            QMessageBox.warning(self, "Error", "You must set up a valid time!")
             return
             
-        self.timer_status = TIMER_STATUS_RUNNING
-    
+        self.player.playSound(os.path.join(self.gadget_sounds_path, "timer_setup.wav"))
+        self.timer_status = TimerStatus.RUNNING
+        self._update_button_states()
+
     def timer_pause(self):
-        self.player.playSound(self.sound_timer_setup)
-        self.timer_status = TIMER_STATUS_PAUSE
-    
+        self.player.playSound(os.path.join(self.gadget_sounds_path, "timer_setup.wav"))
+        self.timer_status = TimerStatus.PAUSE
+        self._update_button_states()
+
     def timer_stop(self):
-        self.player.playSound(self.sound_timer_setup)
-        self.timer_status = TIMER_STATUS_RESET
-    
-    def increaseHour(self):
-        if self.current_hour < 59:
-            self.player.playSound(self.sound_timer_setup)
-            self.current_hour = self.current_hour + 1
-        
-    def increaseMinute(self):
-        if self.current_minute < 59:
-            self.player.playSound(self.sound_timer_setup)
-            self.current_minute = self.current_minute + 1
-        
-    def increaseSecond(self):
-        if self.current_second < 59:
-            self.player.playSound(self.sound_timer_setup)
-            self.current_second = self.current_second + 1
-        
-    def decreaseHour(self):
-        if self.current_hour > 0:
-            self.player.playSound(self.sound_timer_setup)
-            self.current_hour = self.current_hour - 1
-        
-    def decreaseMinute(self):
-        if self.current_minute > 0:
-            self.player.playSound(self.sound_timer_setup)
-            self.current_minute = self.current_minute - 1
-        
-    def decreaseSecond(self):
-        if self.current_second > 0:
-            self.player.playSound(self.sound_timer_setup)
-            self.current_second = self.current_second - 1
-        
+        self.player.playSound(os.path.join(self.gadget_sounds_path, "timer_setup.wav"))
+        self.timer_status = TimerStatus.RESET
+        self._update_button_states()
+
+    def _adjust_time(self, unit: str, delta: int):
+        self.player.playSound(os.path.join(self.gadget_sounds_path, "timer_setup.wav"))
+        if unit == 'h':
+            self.current_hour = max(0, min(99, self.current_hour + delta))
+        elif unit == 'm':
+            self.current_minute = max(0, min(59, self.current_minute + delta))
+        elif unit == 's':
+            self.current_second = max(0, min(59, self.current_second + delta))
+        self.update()
+
+    def increaseHour(self): self._adjust_time('h', 1)
+    def increaseMinute(self): self._adjust_time('m', 1)
+    def increaseSecond(self): self._adjust_time('s', 1)
+    def decreaseHour(self): self._adjust_time('h', -1)
+    def decreaseMinute(self): self._adjust_time('m', -1)
+    def decreaseSecond(self): self._adjust_time('s', -1)
+
+    # --- Painting ---
+
     def paintEvent(self, event):
-        """only care about how to paint，other are handled by base-class"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        target_rect = QRect(0, 0, 384, 191)
-        painter.drawImage(target_rect, self.timer_panel)
+        painter.drawPixmap(self.rect(), self.assets["timer_panel"])
         
-        self.btnStop.paint(painter)
+        self.render_digital(painter, self.current_hour, (14, 54), (48, 83))
+        self.render_digital(painter, self.current_minute, (141, 54), (48, 83))
+        self.render_digital(painter, self.current_second, (268, 54), (48, 83))
         
-        if self.timer_status == TIMER_STATUS_RESET:
-            self.btnStart.paint(painter)
+        for btn in self.all_buttons:
+            btn.paint(painter)
             
-            if (self.current_hour != 0 or self.current_minute != 0 or self.current_second != 0) and (not self.hasReseted):
-                self.current_hour = 0
-                self.current_minute = 0
-                self.current_second = 0
-                self.hasReseted = True
-            
-            self.btnIncreaseHour.isEnabled = True
-            self.btnIncreaseMinute.isEnabled = True
-            self.btnIncreaseSecond.isEnabled = True
-            self.btnDecreaseHour.isEnabled = True
-            self.btnDecreaseMinute.isEnabled = True
-            self.btnDecreaseSecond.isEnabled = True
-        else:
-            self.btnIncreaseHour.isEnabled = False
-            self.btnIncreaseMinute.isEnabled = False
-            self.btnIncreaseSecond.isEnabled = False
-            self.btnDecreaseHour.isEnabled = False
-            self.btnDecreaseMinute.isEnabled = False
-            self.btnDecreaseSecond.isEnabled = False
-            
-            if self.timer_status == TIMER_STATUS_RUNNING:
-                #self.player.playSound(self.sound_timer_tick)
-                
-                self.btnPause.paint(painter)
-                self.hasReseted = False
-                
-                if self.current_second > 0:
-                    self.current_second = self.current_second - 1
-                elif self.current_second == 0:
-                    if self.current_minute > 0:
-                        self.current_minute = self.current_minute - 1
-                        self.current_second = 59
-                    elif self.current_minute == 0:
-                        if self.current_hour > 0:
-                            self.current_hour = self.current_hour - 1
-                            self.current_minute = 59
-                            self.current_minute = 59
-                        elif self.current_hour == 0:
-                            self.timer_status = TIMER_STATUS_RESET
-                            self.player.playSound(self.sound_timer_alarm)
-            
-            elif self.timer_status == TIMER_STATUS_PAUSE:
-                self.btnStart.paint(painter)
-        
-        self.render_digitals(self.current_hour, painter, (14, 54), (48, 83), [7])
-        self.render_digitals(self.current_minute, painter, (141, 54), (48, 83),[7])
-        self.render_digitals(self.current_second, painter, (268, 54), (48, 83),[7])
-        
-        self.btnIncreaseHour.paint(painter)
-        self.btnIncreaseMinute.paint(painter)
-        self.btnIncreaseSecond.paint(painter)
-        
-        self.btnDecreaseHour.paint(painter)
-        self.btnDecreaseMinute.paint(painter)
-        self.btnDecreaseSecond.paint(painter)
-        
         painter.end()
-    
-    def render_digitals(self, val, painter: QPainter, 
-                        startPos: tuple[int, int], 
-                        size: tuple[int, int], 
-                        gap_list: list[int]
-                        ):
-        val_digitals_list = self.get_digits(val)
-        val_digitals_num = len(val_digitals_list)
+
+    def render_digital(self, painter: QPainter, value: int, pos: tuple[int, int], size: tuple[int, int]):
+        gap = 7
         
-        if val_digitals_num == 1:
-            target_rect = QRect(startPos[0], startPos[1], size[0], size[1])
-            painter.drawImage(target_rect, self.digitalNumber0)
-            
-            target_rect = QRect(startPos[0] + size[0] + gap_list[0], startPos[1], size[0], size[1])
-            painter.drawImage(target_rect, self.getImageByDigital(val_digitals_list[0]))
-        else:
-            posX = 0
-            posY = 0
-            for i, digit in enumerate(val_digitals_list):
-                if i == 0:
-                    posX = startPos[0]
-                    posY = startPos[1]
-                else:
-                    posX = startPos[0] + size[0]*i + gap_list[i-1]
-                target_rect = QRect(posX, posY, size[0], size[1])
-                painter.drawImage(target_rect, self.getImageByDigital(digit))
-            
-    def getImageByDigital(self, digit):
-        if digit == 0:
-            return self.digitalNumber0
-        elif digit == 1:
-            return self.digitalNumber1
-        elif digit == 2:
-            return self.digitalNumber2
-        elif digit == 3:
-            return self.digitalNumber3
-        elif digit == 4:
-            return self.digitalNumber4
-        elif digit == 5:
-            return self.digitalNumber5
-        elif digit == 6:
-            return self.digitalNumber6
-        elif digit == 7:
-            return self.digitalNumber7
-        elif digit == 8:
-            return self.digitalNumber8
-        elif digit == 9:
-            return self.digitalNumber9
+        s_value = f"{value:02d}"
         
-        return None
+        digit1 = int(s_value[0])
+        digit2 = int(s_value[1])
         
-    def get_digits(self, number: int) -> list[int]:
-        positive_num = abs(number)
-        s_number = str(positive_num)
-        digits = [int(digit) for digit in s_number]
+        rect = QRect(pos[0], pos[1], size[0], size[1])
+        rect2 = QRect(pos[0] + size[0] + gap, pos[1], size[0], size[1])
         
-        return digits
+        painter.drawPixmap(rect, self.digit_pixmaps[digit1])
+        painter.drawPixmap(rect2, self.digit_pixmaps[digit2])
+
 
 if __name__ == '__main__':
-    # get gadget_path from command line
     if len(sys.argv) < 2:
         print("Error: need to provide the gadget_path as argument")
         sys.exit(1)
-    
-    gadget_path_arg = sys.argv[1]
-
+    else:
+        gadget_path_arg = sys.argv[1]
+        
     app = QApplication(sys.argv)
-    
     gadget = TimerGadget(gadget_path=gadget_path_arg)
     gadget.show()
     sys.exit(app.exec())
