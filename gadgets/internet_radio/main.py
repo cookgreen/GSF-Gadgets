@@ -106,7 +106,6 @@ class AudioVisualizer(QWidget):
         # ---
 
     def _precompute_colors(self):
-        """在初始化时计算并缓存每一行LED的颜色，避免在paintEvent中重复计算。"""
         self.led_colors = []
         for i in range(self.num_leds_vertical):
             t = i / (self.num_leds_vertical - 1)
@@ -149,15 +148,20 @@ class AudioVisualizer(QWidget):
 
         led_width = self.width() / num_bands
         led_height = self.height() / self.num_leds_vertical
-
+        
+        last_leds_to_light = -1
         for i, band_value in enumerate(self.bands):
             
             leds_to_light = int(band_value * self.num_leds_vertical)
             
+            x = i * led_width
+            
+            if leds_to_light == 0:
+                leds_to_light = int(last_leds_to_light * 0.8)
+            
             for j in range(leds_to_light):
                 color = self.led_colors[j]
                 
-                x = i * led_width
                 y = self.height() - (j + 1) * led_height
                 
                 led_rect = QRectF(x + self.led_gap,
@@ -166,6 +170,7 @@ class AudioVisualizer(QWidget):
                                   led_height - 2 * self.led_gap)
                 
                 painter.fillRect(led_rect, color)
+            last_leds_to_light = leds_to_light
         
     def paintEvent2(self, event):
         painter = QPainter(self)

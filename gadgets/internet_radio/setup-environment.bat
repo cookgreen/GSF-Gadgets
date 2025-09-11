@@ -1,1 +1,1 @@
-pip install python-vlc
+pip install python-vlc numpy scipy pyaudio
