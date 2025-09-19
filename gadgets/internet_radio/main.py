@@ -78,6 +78,7 @@ class QImageButton:
             self.callback()
             
     def paint(self, painter: QPainter):
+        painter.setRenderHint(QPainter.Antialiasing)
         if not self.isVisible:
             return
 
@@ -349,6 +350,7 @@ class InternetRadioGadget(BaseGadget):
         # --- load images ---
         self.main_panel = QImage(os.path.join(self.gadget_assets_path, "main_panel.png"))
         
+        self.isAudioNone = False
         self._create_buttons()
         
     def _load_assets(self):
@@ -365,6 +367,11 @@ class InternetRadioGadget(BaseGadget):
             "button-stop.png",
             "button-stop-hover.png",
             "button-stop-disable.png",
+            "button-volume.png",
+            "button-volume-hover.png",
+            "button-volume-disable.png",
+            "button-volume-none.png",
+            "button-volume-none-hover.png",
         ]
 
         for filename in asset_files:
@@ -400,10 +407,26 @@ class InternetRadioGadget(BaseGadget):
             self.assets["button-stop-disable"],
             callback=self.stopFM)
         self.btnStop.isEnabled = False
+        
+        self.btnVolume = QImageButton((188, 19), (30, 30), 
+            self.assets["button-volume"],
+            self.assets["button-volume-hover"],
+            self.assets["button-volume-disable"],
+            callback=self.volumeSet)
+        self.btnStop.isEnabled = False
+        
+        self.btnVolumeNone = QImageButton((188, 19), (30, 30), 
+            self.assets["button-volume-none"],
+            self.assets["button-volume-none-hover"],
+            self.assets["button-volume-disable"],
+            callback=self.volumeSet)
+        self.btnStop.isEnabled = False
             
         self.all_buttons.append(self.btnRandom)
         self.all_buttons.append(self.btnStop)
         self.all_buttons.append(self.btnPlay)
+        self.all_buttons.append(self.btnVolume)
+        self.all_buttons.append(self.btnVolumeNone)
     
     def initization(self):
         self.init_thread = QThread(parent=self)
@@ -479,6 +502,9 @@ class InternetRadioGadget(BaseGadget):
     def stopFM(self):
         self.update_status_report("Ready")
         self.player.stopFM()
+        
+    def volumeSet(self):
+        self.isAudioNone = not self.isAudioNone
     
     def mouseMoveEvent(self, event: QMouseEvent):
         current_hover = None
@@ -507,7 +533,6 @@ class InternetRadioGadget(BaseGadget):
         super().mousePressEvent(event)
         
     def paintEvent(self, event):
-        """only care about how to paint，other are handled by base-class"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
@@ -523,7 +548,7 @@ class InternetRadioGadget(BaseGadget):
         
         if self.scroll_timer.isActive():
             painter.drawText(self.status_rect.x() - self.scroll_offset, self.status_rect.y(),
-                             self.scroll_loop_point * 2, self.status_rect.height(), # 提供足够宽的绘制区域
+                             self.scroll_loop_point * 2, self.status_rect.height(),
                              Qt.AlignmentFlag.AlignVCenter, self.scrolling_text)
         else:
             painter.drawText(self.status_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
@@ -548,6 +573,11 @@ class InternetRadioGadget(BaseGadget):
                 self.all_buttons.append(self.btnPlay)
             if self.btnPause in self.all_buttons:
                 self.all_buttons.remove(self.btnPause)
+                
+        if not self.isAudioNone:
+            self.btnVolume.paint(painter)
+        else:
+            self.btnVolumeNone.paint(painter)
         
         painter.setFont(QFont("Arial", 15))
         painter.setPen(Qt.GlobalColor.green)
