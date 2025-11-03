@@ -116,25 +116,47 @@ class TimerGadget(BaseGadget):
         self.digit_pixmaps = [self.assets[f'digital_number_{i}'] for i in range(10)]
 
     def _create_buttons(self):
-        self.btnIncreaseHour = QImageButton((43, 17), (45, 26),
+        self.btnIncreaseHour10 = QImageButton((18, 17), (45, 26),
             self.assets["button-increase"], self.assets["button-increase-hover"], self.assets["button-increase-disable"],
-            callback=self.increaseHour)
-        self.btnIncreaseMinute = QImageButton((170, 17), (45, 26),
+            callback=self.increaseHour10)
+        self.btnIncreaseHour1 = QImageButton((68, 17), (45, 26),
             self.assets["button-increase"], self.assets["button-increase-hover"], self.assets["button-increase-disable"],
-            callback=self.increaseMinute)
-        self.btnIncreaseSecond = QImageButton((297, 17), (45, 26),
-            self.assets["button-increase"], self.assets["button-increase-hover"], self.assets["button-increase-disable"],
-            callback=self.increaseSecond)
+            callback=self.increaseHour1)
         
-        self.btnDecreaseHour = QImageButton((43, 147), (45, 26),
+        self.btnIncreaseMinute10 = QImageButton((145, 17), (45, 26),
+            self.assets["button-increase"], self.assets["button-increase-hover"], self.assets["button-increase-disable"],
+            callback=self.increaseMinute10)
+        self.btnIncreaseMinute1 = QImageButton((195, 17), (45, 26),
+            self.assets["button-increase"], self.assets["button-increase-hover"], self.assets["button-increase-disable"],
+            callback=self.increaseMinute1)
+        
+        self.btnIncreaseSecond10 = QImageButton((272, 17), (45, 26),
+            self.assets["button-increase"], self.assets["button-increase-hover"], self.assets["button-increase-disable"],
+            callback=self.increaseSecond10)
+        self.btnIncreaseSecond1 = QImageButton((322, 17), (45, 26),
+            self.assets["button-increase"], self.assets["button-increase-hover"], self.assets["button-increase-disable"],
+            callback=self.increaseSecond1)
+        
+        self.btnDecreaseHour10 = QImageButton((18, 147), (45, 26),
             self.assets["button-decrease"], self.assets["button-decrease-hover"], self.assets["button-decrease-disable"],
-            callback=self.decreaseHour)
-        self.btnDecreaseMinute = QImageButton((170, 147), (45, 26),
+            callback=self.decreaseHour10)
+        self.btnDecreaseHour1 = QImageButton((68, 147), (45, 26),
             self.assets["button-decrease"], self.assets["button-decrease-hover"], self.assets["button-decrease-disable"],
-            callback=self.decreaseMinute)
-        self.btnDecreaseSecond = QImageButton((297, 147), (45, 26),
+            callback=self.decreaseHour1)
+            
+        self.btnDecreaseMinute10 = QImageButton((145, 147), (45, 26),
             self.assets["button-decrease"], self.assets["button-decrease-hover"], self.assets["button-decrease-disable"],
-            callback=self.decreaseSecond)
+            callback=self.decreaseMinute10)
+        self.btnDecreaseMinute1 = QImageButton((195, 147), (45, 26),
+            self.assets["button-decrease"], self.assets["button-decrease-hover"], self.assets["button-decrease-disable"],
+            callback=self.decreaseMinute1)
+            
+        self.btnDecreaseSecond10 = QImageButton((272, 147), (45, 26),
+            self.assets["button-decrease"], self.assets["button-decrease-hover"], self.assets["button-decrease-disable"],
+            callback=self.decreaseSecond10)
+        self.btnDecreaseSecond1 = QImageButton((322, 147), (45, 26),
+            self.assets["button-decrease"], self.assets["button-decrease-hover"], self.assets["button-decrease-disable"],
+            callback=self.decreaseSecond1)
 
         self.btnStart = QImageButton((117, 161), (22, 22),
             self.assets["control-button-play"], self.assets["control-button-play-hover"], self.assets["control-button-play-disable"],
@@ -147,8 +169,24 @@ class TimerGadget(BaseGadget):
             callback=self.timer_stop)
         
         self.all_buttons = [
-            self.btnIncreaseHour, self.btnIncreaseMinute, self.btnIncreaseSecond,
-            self.btnDecreaseHour, self.btnDecreaseMinute, self.btnDecreaseSecond,
+            self.btnIncreaseHour10, 
+            self.btnIncreaseHour1, 
+            
+            self.btnIncreaseMinute10, 
+            self.btnIncreaseMinute1, 
+            
+            self.btnIncreaseSecond10,
+            self.btnIncreaseSecond1,
+            
+            self.btnDecreaseHour10, 
+            self.btnDecreaseHour1, 
+            
+            self.btnDecreaseMinute10, 
+            self.btnDecreaseMinute1, 
+            
+            self.btnDecreaseSecond10,
+            self.btnDecreaseSecond1,
+            
             self.btnStart, self.btnPause, self.btnStop
         ]
 
@@ -173,8 +211,13 @@ class TimerGadget(BaseGadget):
     def _update_button_states(self):
         is_reset_state = self.timer_status == TimerStatus.RESET
         
-        for btn in [self.btnIncreaseHour, self.btnIncreaseMinute, self.btnIncreaseSecond,
-                    self.btnDecreaseHour, self.btnDecreaseMinute, self.btnDecreaseSecond]:
+        for btn in [
+                    self.btnIncreaseHour10, self.btnIncreaseHour1,
+                    self.btnIncreaseMinute10, self.btnIncreaseMinute1, 
+                    self.btnIncreaseSecond10, self.btnIncreaseSecond1,
+                    self.btnDecreaseHour10, self.btnDecreaseHour1, 
+                    self.btnDecreaseMinute10, self.btnDecreaseMinute1, 
+                    self.btnDecreaseSecond10, self.btnDecreaseSecond1]:
             btn.isEnabled = is_reset_state
 
         self.btnStart.isVisible = (self.timer_status != TimerStatus.RUNNING)
@@ -246,12 +289,23 @@ class TimerGadget(BaseGadget):
             self.current_second = max(0, min(59, self.current_second + delta))
         self.update()
 
-    def increaseHour(self): self._adjust_time('h', 1)
-    def increaseMinute(self): self._adjust_time('m', 1)
-    def increaseSecond(self): self._adjust_time('s', 1)
-    def decreaseHour(self): self._adjust_time('h', -1)
-    def decreaseMinute(self): self._adjust_time('m', -1)
-    def decreaseSecond(self): self._adjust_time('s', -1)
+    def increaseHour10(self): self._adjust_time('h', 10)
+    def increaseHour1(self): self._adjust_time('h', 1)
+    
+    def increaseMinute10(self): self._adjust_time('m', 10)
+    def increaseMinute1(self): self._adjust_time('m', 1)
+    
+    def increaseSecond10(self): self._adjust_time('s', 10)
+    def increaseSecond1(self): self._adjust_time('s', 1)
+    
+    def decreaseHour10(self): self._adjust_time('h', -10)
+    def decreaseHour1(self): self._adjust_time('h', -1)
+    
+    def decreaseMinute10(self): self._adjust_time('m', -10)
+    def decreaseMinute1(self): self._adjust_time('m', -1)
+    
+    def decreaseSecond10(self): self._adjust_time('s', -10)
+    def decreaseSecond1(self): self._adjust_time('s', -1)
 
     # --- Painting ---
 
@@ -286,12 +340,7 @@ class TimerGadget(BaseGadget):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Error: need to provide the gadget_path as argument")
-        sys.exit(1)
-    else:
-        gadget_path_arg = sys.argv[1]
-        
+    gadget_path_arg = sys.argv[1]
     app = QApplication(sys.argv)
     gadget = TimerGadget(gadget_path=gadget_path_arg)
     gadget.show()
