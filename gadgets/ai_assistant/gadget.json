@@ -1,0 +1,6 @@
+{
+    "name": "AI Assistant",
+    "version": "1.0",
+    "description": "Use GSF to chat with LLM",
+    "entry_point": "main.py"
+}

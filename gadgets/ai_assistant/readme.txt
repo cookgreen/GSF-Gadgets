@@ -1,0 +1,1 @@
+This is the AI Assistant for GSF which allow you to chat with LLM in order to help you in daily work
