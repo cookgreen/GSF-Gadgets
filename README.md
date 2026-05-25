@@ -27,6 +27,8 @@ You need to clone the repository and save it to `C:/Users/[Your User Name]/AppDa
 ### Internet Radio  
 <img width="400" alt="internet-radio" src="Screenshots/internet-radio.png" />
   
+<img width="400" alt="internet-radio" src="Screenshots/internet-radio-landscape.png" />
+  
 ### AI Assistant   
 <img width="400" alt="internet-radio" src="gadgets/ai_assistant/assets/avatar.png" />
 

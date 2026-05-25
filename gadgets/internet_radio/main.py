@@ -107,7 +107,7 @@ class InitializationWorker(QObject):
         self.initialization_finished.emit()
 
 class QImageButton(QWidget):
-    clicked = Signal() # 添加点击信号
+    clicked = Signal()
 
     def __init__(self, size: tuple[int, int],
                  normal_pixmap: QPixmap,
@@ -115,7 +115,7 @@ class QImageButton(QWidget):
                  disabled_pixmap: QPixmap,
                  callback=None, parent=None):
         super().__init__(parent)
-        # 不再需要传入 pos，Layout 会自动安排位置！
+        
         self.setFixedSize(size[0], size[1])
         
         self.normal_pixmap = normal_pixmap
@@ -125,7 +125,7 @@ class QImageButton(QWidget):
         
         self.hovered = False
         self._is_enabled = True 
-        self.setMouseTracking(True) # 开启鼠标追踪
+        self.setMouseTracking(True) 
 
     def setEnabled(self, enabled: bool):
         self._is_enabled = enabled
@@ -363,27 +363,22 @@ class AudioProcessor(QObject):
 class StationItemWidget(QWidget):
     def __init__(self, station_name, assets, assets_path, parent=None):
         super().__init__(parent)
-        self.assets = assets  # 保存主界面传来的图片字典
+        self.assets = assets 
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 5, 10, 5)
         
-        # --- 左侧图标区 (支持静态 Emoji 和 动态 GIF) ---
         self.icon_label = QLabel("🎧") 
         self.icon_label.setFont(QFont("Arial", 14))
         self.icon_label.setFixedSize(28, 28)
         self.icon_label.setAlignment(Qt.AlignCenter)
         
-        # 初始化 GIF 动图
         self.wave_movie = QMovie(os.path.join(assets_path, "wave.gif"))
-        self.wave_movie.setScaledSize(QSize(20, 20)) # 根据你的 GIF 实际饱满度调整大小
+        self.wave_movie.setScaledSize(QSize(20, 20)) 
         
-        # --- 中间文字区 ---
         self.name_label = QLabel(station_name)
         self.name_label.setFont(QFont("Arial", 11, QFont.Bold))
         
-        # --- 右侧按钮区 (使用你自己的 QImageButton) ---
-        # 初始状态使用 button-play 图片，尺寸缩小适配列表 (例如 28x28)
         self.btn_play = QImageButton((28, 28), 
             self.assets["button-play"], 
             self.assets.get("button-play-hover", self.assets["button-play"]), 
@@ -397,18 +392,15 @@ class StationItemWidget(QWidget):
     def set_active_state(self, is_current: bool, is_playing: bool):
         """由主界面调用，动态切换图片和动图状态"""
         if is_current:
-            # 高亮本行背景
             self.setStyleSheet("StationItemWidget { background-color: #000000; border-radius: 8px; }")
             
             if is_playing:
-                # 正在播放：右侧切成 Pause 图，左侧播 GIF
                 self.btn_play.normal_pixmap = self.assets["button-pause"]
                 self.btn_play.hover_pixmap = self.assets.get("button-pause-hover", self.assets["button-pause"])
                 
                 self.icon_label.setMovie(self.wave_movie)
                 self.wave_movie.start()
             else:
-                # 暂停中：右侧切成 Play 图，左侧停 GIF
                 self.btn_play.normal_pixmap = self.assets["button-play"]
                 self.btn_play.hover_pixmap = self.assets.get("button-play-hover", self.assets["button-play"])
                 
@@ -416,7 +408,6 @@ class StationItemWidget(QWidget):
                 self.icon_label.clear()
                 self.icon_label.setText("🎧")
         else:
-            # 非当前电台：恢复默认状态
             self.setStyleSheet("StationItemWidget { background-color: transparent; }")
             
             self.btn_play.normal_pixmap = self.assets["button-play"]
@@ -426,7 +417,6 @@ class StationItemWidget(QWidget):
             self.icon_label.clear()
             self.icon_label.setText("🎧")
             
-        # 强制按钮重绘以刷新图片
         self.btn_play.update()
 
 class ScrollingLabel(QWidget):
@@ -454,7 +444,6 @@ class ScrollingLabel(QWidget):
         fm = QFontMetrics(self.status_font)
         text_width = fm.horizontalAdvance(self.text)
         
-        # 如果文字宽度大于控件宽度，开启跑马灯
         if text_width > self.width() and self.width() > 0:
             gap = "    "
             self.scrolling_text = self.text + gap + self.text
@@ -493,16 +482,16 @@ class InternetRadioGadget(BaseGadget):
         self.gadget_path = gadget_path
         self.gadget_assets_path = os.path.join(self.gadget_path, "assets")
         
-        # --- 数据与业务层初始化 ---
         self.api = RadioBrowserApi()
         self.player = RadioPlayer(parent=self)
         self.current_playing_index = 0
         self.is_playing = False
         
-        # --- UI 初始化 ---
+        self.is_landscape = True # 默认是宽屏桌面模式
+        
         self.setWindowTitle('iRadio')
-        self.resize(320, 600)  # 调整为类似手机屏幕的垂直比例
-        self.setStyleSheet("background-color: white;")
+        self.resize(320, 600) 
+        #self.setStyleSheet("background-color: white;")
         
         self._load_assets()
         
@@ -517,6 +506,7 @@ class InternetRadioGadget(BaseGadget):
             "button-next.png", "button-next-hover.png",
             "button-prev.png", "button-prev-hover.png",
             "button-volume.png", "button-volume-hover.png",
+            "button-expand.png", "button-less.png",
             "button-volume-none.png", "button-volume-none-hover.png",
         ]
         self.assets = {}
@@ -528,7 +518,6 @@ class InternetRadioGadget(BaseGadget):
     def setup_ui(self):
         self.setFixedWidth(320)
         
-        """构建现代化的垂直布局"""
         top_layout = QVBoxLayout(self)
         top_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -544,9 +533,9 @@ class InternetRadioGadget(BaseGadget):
         
         top_layout.addWidget(self.main_container)
 
-        main_layout = QVBoxLayout(self.main_container)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        self.main_layout = QVBoxLayout(self.main_container)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
         
         self.title_bar = QWidget()
         self.title_bar.setFixedHeight(30)
@@ -562,22 +551,91 @@ class InternetRadioGadget(BaseGadget):
         title_layout = QHBoxLayout(self.title_bar)
         title_layout.setContentsMargins(10, 0, 10, 0)
         
+        self.btn_toggle_view = QImageButton((20, 20), 
+            self.assets["button-expand"], 
+            self.assets["button-expand"], 
+            self.assets["button-expand"], 
+            callback=self.toggle_view_mode)
+        title_layout.addWidget(self.btn_toggle_view)
+        
         lbl_titlebar = QLabel("iRadio - Internet Radio based on GSF")
         lbl_titlebar.setFont(QFont("Arial", 9, QFont.Bold))
         lbl_titlebar.setStyleSheet("color: white; background-color: transparent;")
         title_layout.addWidget(lbl_titlebar, alignment=Qt.AlignCenter)
-        main_layout.addWidget(self.title_bar)
+        title_layout.addStretch() # 保持标题居中
         
-        content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(20, 20, 20, 20)
-        content_layout.setSpacing(15)
-        main_layout.addLayout(content_layout)
+        self.main_layout.addWidget(self.title_bar)
+        
+        self.content_area = QWidget()
+        self.content_layout = None
+        self.main_layout.addWidget(self.content_area)
+        
+        
+
+        self.sidebar_widget = QWidget()
+        sidebar_vbox = QVBoxLayout(self.sidebar_widget)
+        sidebar_vbox.setContentsMargins(15, 15, 15, 15)
+        
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Search")
+        self.search_bar.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #CCC;
+                border-radius: 10%;
+                padding: 8px 15px;
+                font-size: 12px;
+                background-color: #F9F9F9;
+            }
+        """)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                border: none;
+                background-color: transparent;
+            }
+            QListWidget::item {
+                border-bottom: 1px solid #F0F0F0;
+                padding: 2px;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #F9F9F9;  
+                width: 8px;           
+                border-radius: 4px;
+                margin: 0px 0px 0px 0px; 
+            }
+            QScrollBar::handle:vertical {
+                background: #333333; 
+                min-height: 30px;
+                border-radius: 4px; 
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #000000;  
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+        
+        self.list_widget.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        
+        sidebar_vbox.addWidget(self.search_bar)
+        sidebar_vbox.addWidget(self.list_widget)
+        
+        self.player_widget = QWidget()
+        player_vbox = QVBoxLayout(self.player_widget)
+        player_vbox.setContentsMargins(15, 15, 15, 15)
+        player_vbox.setSpacing(10)
 
         default_logo_path = os.path.join(self.gadget_assets_path, "iRadio-default.png")
         self.favicon = CircularFavicon(size=140, default_img_path=default_logo_path, parent=self.main_container)
-        fav_layout = QHBoxLayout()
-        fav_layout.addWidget(self.favicon, alignment=Qt.AlignCenter)
-        content_layout.addLayout(fav_layout)
+        player_vbox.addWidget(self.favicon, alignment=Qt.AlignCenter)
 
         #self.lbl_title = QLabel("INTERNET RADIO")
         #self.lbl_title.setFont(QFont("Arial", 14, QFont.Bold))
@@ -589,8 +647,8 @@ class InternetRadioGadget(BaseGadget):
         self.lbl_subtitle.setFont(QFont("Arial", 10))
         self.lbl_subtitle.setStyleSheet("color: #666;")
         
-        content_layout.addWidget(self.lbl_title)
-        content_layout.addWidget(self.lbl_subtitle)
+        player_vbox.addWidget(self.lbl_title)
+        player_vbox.addWidget(self.lbl_subtitle)
 
         control_layout = QHBoxLayout()
         control_layout.setAlignment(Qt.AlignCenter)
@@ -634,7 +692,7 @@ class InternetRadioGadget(BaseGadget):
         control_layout.addWidget(self.btn_play)
         control_layout.addWidget(self.btn_pause)
         control_layout.addWidget(self.btn_next)
-        content_layout.addLayout(control_layout)
+        player_vbox.addLayout(control_layout)
 
         vol_layout = QHBoxLayout()
         vol_layout.setAlignment(Qt.AlignVCenter)
@@ -645,7 +703,7 @@ class InternetRadioGadget(BaseGadget):
             self.assets.get("button-volume-disable", self.assets["button-volume"]),
             callback=self.toggle_mute)
         
-        self.last_volume = 80 # 用于记录静音前的音量
+        self.last_volume = 80
         self.slider_vol = QSlider(Qt.Horizontal)
         self.slider_vol.setRange(0, 100)
         self.slider_vol.setValue(self.last_volume)
@@ -673,73 +731,60 @@ class InternetRadioGadget(BaseGadget):
         
         vol_layout.addWidget(self.btn_volume)
         vol_layout.addWidget(self.slider_vol)
-        content_layout.addLayout(vol_layout)
-
-        self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search")
-        self.search_bar.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #CCC;
-                border-radius: 10%;
-                padding: 8px 15px;
-                font-size: 12px;
-                background-color: #F9F9F9;
-            }
-        """)
-        content_layout.addWidget(self.search_bar)
-
-        self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet("""
-            QListWidget {
-                border: none;
-                background-color: transparent;
-            }
-            QListWidget::item {
-                border-bottom: 1px solid #F0F0F0;
-                padding: 2px;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background: #F9F9F9;  
-                width: 8px;           
-                border-radius: 4px;
-                margin: 0px 0px 0px 0px; 
-            }
-            QScrollBar::handle:vertical {
-                background: #333333; 
-                min-height: 30px;
-                border-radius: 4px; 
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #000000;  
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                border: none;
-                background: none;
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
-            }
-        """)
+        player_vbox.addLayout(vol_layout)
         
-        self.list_widget.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        
         self.loaded_station_count = 0 
         self.BATCH_SIZE = 40 
         
-        content_layout.addWidget(self.list_widget)
+        self.apply_view_layout()
+        
+    def apply_view_layout(self):
+        """根据 is_landscape 状态重新排布界面"""
+        
+        old_layout = self.content_area.layout()
+        if old_layout:
+            # 1. 先把我们辛辛苦苦写的控件从旧布局里摘出来（防止被一起销毁）
+            old_layout.removeWidget(self.sidebar_widget)
+            old_layout.removeWidget(self.player_widget)
+            
+            QWidget().setLayout(old_layout)
+
+        if self.is_landscape:
+            new_layout = QHBoxLayout(self.content_area)
+            new_layout.addWidget(self.sidebar_widget, 1)
+            new_layout.addWidget(self.player_widget, 1)
+            self.setFixedWidth(600)
+            self.resize(600, 300) 
+        else:
+            new_layout = QVBoxLayout(self.content_area)
+            new_layout.addWidget(self.player_widget)
+            new_layout.addWidget(self.sidebar_widget)
+            self.setFixedWidth(320)
+            self.resize(320, 600)
+
+        self.content_area.setLayout(new_layout)
+
+    def toggle_view_mode(self):
+        """切换模式按钮的逻辑"""
+        self.is_landscape = not self.is_landscape
+        if self.is_landscape:
+            self.btn_toggle_view.normal_pixmap = self.assets["button-expand"]
+            self.btn_toggle_view.hover_pixmap = self.assets.get("button-expand-hover", self.assets["button-expand"])
+        else:
+            self.btn_toggle_view.normal_pixmap = self.assets["button-less"]
+            self.btn_toggle_view.hover_pixmap = self.assets.get("button-less-hover", self.assets["button-less"])
+        self.apply_view_layout()
 
     def toggle_mute(self):
         self.is_muted = not self.is_muted
         if self.is_muted:
             self.last_volume = self.slider_vol.value()
             self.slider_vol.setValue(0)
-            # 动态替换图标为静音图标
             self.btn_volume.normal_pixmap = self.assets["button-volume-none"]
             self.btn_volume.hover_pixmap = self.assets.get("button-volume-none-hover", self.assets["button-volume-none"])
         else:
             self.slider_vol.setValue(self.last_volume if self.last_volume > 0 else 50)
-            # 恢复正常音量图标
             self.btn_volume.normal_pixmap = self.assets["button-volume"]
             self.btn_volume.hover_pixmap = self.assets.get("button-volume-hover", self.assets["button-volume"])
             
@@ -836,7 +881,7 @@ class InternetRadioGadget(BaseGadget):
                 name = name[:22] + "..."
                 
             item = QListWidgetItem(self.list_widget)
-            item.setSizeHint(QSize(0, 50)) # 设置行高
+            item.setSizeHint(QSize(0, 50))
             
             custom_widget = StationItemWidget(name, self.assets, self.gadget_assets_path)
             
@@ -846,7 +891,6 @@ class InternetRadioGadget(BaseGadget):
             
             self.list_widget.setItemWidget(item, custom_widget)
 
-        # 更新已加载的数量
         self.loaded_station_count = end_index
 
     @Slot(int)
