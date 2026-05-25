@@ -18,30 +18,40 @@ CHANNELS = 2
 RATE = 44100
 
 class CircularFavicon(QWidget):
-    def __init__(self, size=150, parent=None):
+    def __init__(self, size=140, default_img_path="", parent=None):
         super().__init__(parent)
         self.setFixedSize(size, size)
         self.image_size = size
         
-        # 默认占位图（比如你截图里的声波图片）
-        self.current_pixmap = QPixmap(size, size)
-        self.current_pixmap.fill(QColor("#2C2C2C")) # 默认深灰色背景
+        self.default_pixmap = QPixmap(size, size)
+        if default_img_path and os.path.exists(default_img_path):
+            raw_pixmap = QPixmap(default_img_path)
+            self.default_pixmap = raw_pixmap.scaled(
+                size, size, 
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding, 
+                Qt.TransformationMode.SmoothTransformation
+            )
+        else:
+            self.default_pixmap.fill(QColor("#1A1A1A")) 
+
+        self.current_pixmap = self.default_pixmap
         
-        # 添加图片中那种淡淡的阴影效果
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(15)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        shadow.setOffset(0, 5)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 60))
+        shadow.setOffset(0, 8)
         self.setGraphicsEffect(shadow)
 
-        # 用于异步下载图片的网络管理器
         self.network_manager = QNetworkAccessManager(self)
         self.network_manager.finished.connect(self._on_image_downloaded)
 
     def load_from_url(self, url_str: str):
-        """传入 API 中的 favicon URL 进行加载"""
+        self.current_pixmap = self.default_pixmap
+        self.update()
+
         if not url_str:
             return
+            
         request = QNetworkRequest(QUrl(url_str))
         self.network_manager.get(request)
 
@@ -49,34 +59,29 @@ class CircularFavicon(QWidget):
         if reply.error() == QNetworkReply.NetworkError.NoError:
             img_data = reply.readAll()
             pixmap = QPixmap()
-            if pixmap.loadFromData(img_data):
-                # 将下载的图片缩放到我们控件的尺寸，保持比例，裁剪多余部分
+            if pixmap.loadFromData(img_data) and not pixmap.isNull():
                 self.current_pixmap = pixmap.scaled(
                     self.image_size, self.image_size, 
                     Qt.AspectRatioMode.KeepAspectRatioByExpanding, 
                     Qt.TransformationMode.SmoothTransformation
                 )
-                self.update() # 触发 paintEvent 重绘
+                self.update()
+        
         reply.deleteLater()
 
     def paintEvent(self, event):
-        """核心：将矩形图片裁剪为圆形"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        # 创建一个圆形的裁剪路径
         path = QPainterPath()
         path.addEllipse(0, 0, self.width(), self.height())
-        
-        # 应用裁剪路径
         painter.setClipPath(path)
         
-        # 居中绘制图片
         x_offset = (self.width() - self.current_pixmap.width()) // 2
         y_offset = (self.height() - self.current_pixmap.height()) // 2
         painter.drawPixmap(x_offset, y_offset, self.current_pixmap)
-
+        
 class InitializationWorker(QObject):
     status_updated = Signal(str) 
     initialization_finished = Signal()
@@ -355,47 +360,81 @@ class AudioProcessor(QObject):
         
         return bands
 
-# ==========================================
-# 2. 自定义电台列表项组件
-# ==========================================
 class StationItemWidget(QWidget):
-    """用于 QListWidget 的自定义行，包含图标、电台名和播放按钮"""
-    def __init__(self, station_name, parent=None):
+    def __init__(self, station_name, assets, assets_path, parent=None):
         super().__init__(parent)
+        self.assets = assets  # 保存主界面传来的图片字典
+        
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 5, 10, 5)
         
-        # 左侧图标 (这里用一个简单的黑圈模拟，实际可替换为QIcon)
+        # --- 左侧图标区 (支持静态 Emoji 和 动态 GIF) ---
         self.icon_label = QLabel("🎧") 
-        self.icon_label.setFont(QFont("Arial", 16))
+        self.icon_label.setFont(QFont("Arial", 14))
+        self.icon_label.setFixedSize(28, 28)
+        self.icon_label.setAlignment(Qt.AlignCenter)
         
-        # 中间电台名称
+        # 初始化 GIF 动图
+        self.wave_movie = QMovie(os.path.join(assets_path, "wave.gif"))
+        self.wave_movie.setScaledSize(QSize(20, 20)) # 根据你的 GIF 实际饱满度调整大小
+        
+        # --- 中间文字区 ---
         self.name_label = QLabel(station_name)
         self.name_label.setFont(QFont("Arial", 11, QFont.Bold))
         
-        # 右侧播放按钮
-        self.btn_play = QPushButton("▶")
-        self.btn_play.setFixedSize(28, 28)
-        self.btn_play.setStyleSheet("""
-            QPushButton {
-                background-color: black;
-                color: white;
-                border-radius: 14px;
-                font-size: 12px;
-            }
-            QPushButton:hover { background-color: #333; }
-        """)
+        # --- 右侧按钮区 (使用你自己的 QImageButton) ---
+        # 初始状态使用 button-play 图片，尺寸缩小适配列表 (例如 28x28)
+        self.btn_play = QImageButton((28, 28), 
+            self.assets["button-play"], 
+            self.assets.get("button-play-hover", self.assets["button-play"]), 
+            self.assets.get("button-play-disable", self.assets["button-play"]))
         
         layout.addWidget(self.icon_label)
         layout.addWidget(self.name_label)
         layout.addStretch()
         layout.addWidget(self.btn_play)
 
+    def set_active_state(self, is_current: bool, is_playing: bool):
+        """由主界面调用，动态切换图片和动图状态"""
+        if is_current:
+            # 高亮本行背景
+            self.setStyleSheet("StationItemWidget { background-color: #000000; border-radius: 8px; }")
+            
+            if is_playing:
+                # 正在播放：右侧切成 Pause 图，左侧播 GIF
+                self.btn_play.normal_pixmap = self.assets["button-pause"]
+                self.btn_play.hover_pixmap = self.assets.get("button-pause-hover", self.assets["button-pause"])
+                
+                self.icon_label.setMovie(self.wave_movie)
+                self.wave_movie.start()
+            else:
+                # 暂停中：右侧切成 Play 图，左侧停 GIF
+                self.btn_play.normal_pixmap = self.assets["button-play"]
+                self.btn_play.hover_pixmap = self.assets.get("button-play-hover", self.assets["button-play"])
+                
+                self.wave_movie.stop()
+                self.icon_label.clear()
+                self.icon_label.setText("🎧")
+        else:
+            # 非当前电台：恢复默认状态
+            self.setStyleSheet("StationItemWidget { background-color: transparent; }")
+            
+            self.btn_play.normal_pixmap = self.assets["button-play"]
+            self.btn_play.hover_pixmap = self.assets.get("button-play-hover", self.assets["button-play"])
+            
+            self.wave_movie.stop()
+            self.icon_label.clear()
+            self.icon_label.setText("🎧")
+            
+        # 强制按钮重绘以刷新图片
+        self.btn_play.update()
+
 class ScrollingLabel(QWidget):
-    def __init__(self, font: QFont, parent=None):
+    def __init__(self, text, font: QFont, color: QColor = Qt.GlobalColor.black, parent=None):
         super().__init__(parent)
         self.setFixedHeight(30)
         self.status_font = font
+        self.text_color = color
         
         self.scroll_timer = QTimer(self)
         self.scroll_timer.setInterval(40)
@@ -404,22 +443,22 @@ class ScrollingLabel(QWidget):
         self.scroll_offset = 0
         self.scrolling_text = ""
         self.scroll_loop_point = 0
-        self.status_report = ""
+        self.text = text
 
     @Slot(str)
     def update_status_report(self, status_text: str):
         self.scroll_timer.stop()
         self.scroll_offset = 0
-        self.status_report = status_text
+        self.text = status_text
         
         fm = QFontMetrics(self.status_font)
-        text_width = fm.horizontalAdvance(self.status_report)
+        text_width = fm.horizontalAdvance(self.text)
         
         # 如果文字宽度大于控件宽度，开启跑马灯
         if text_width > self.width() and self.width() > 0:
             gap = "    "
-            self.scrolling_text = self.status_report + gap + self.status_report
-            self.scroll_loop_point = fm.horizontalAdvance(self.status_report + gap)
+            self.scrolling_text = self.text + gap + self.text
+            self.scroll_loop_point = fm.horizontalAdvance(self.text + gap)
             self.scroll_timer.start()
             
         self.update()
@@ -435,8 +474,7 @@ class ScrollingLabel(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setFont(self.status_font)
-        # 这里我用了深灰色，你也可以改回你旧代码里的 Qt.GlobalColor.green
-        painter.setPen(Qt.GlobalColor.black) 
+        painter.setPen(self.text_color)
         
         rect = self.rect()
         painter.setClipRect(rect)
@@ -447,11 +485,8 @@ class ScrollingLabel(QWidget):
                              Qt.AlignmentFlag.AlignVCenter, self.scrolling_text)
         else:
             painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
-                             self.status_report)
+                             self.text)
 
-# ==========================================
-# 3. 主 Gadget 界面
-# ==========================================
 class InternetRadioGadget(BaseGadget):
     def __init__(self, gadget_path):
         super().__init__(gadget_path)
@@ -475,12 +510,14 @@ class InternetRadioGadget(BaseGadget):
         self.initization()
         
     def _load_assets(self):
-        # 补全你图中的图片名称
         asset_files = [
-            "button-play.png", "button-play-hover.png", "button-play-disable.png",
-            "button-pause.png", "button-pause-hover.png", "button-pause-disable.png",
-            "button-next.png", "button-next-hover.png", "button-next-disable.png", # 假设你有disable，没有就用普通图代替
-            "button-prev.png", "button-prev-hover.png", "button-prev-disable.png",
+            "iRadio-default.png",
+            "button-play.png", "button-play-hover.png",
+            "button-pause.png", "button-pause-hover.png",
+            "button-next.png", "button-next-hover.png",
+            "button-prev.png", "button-prev-hover.png",
+            "button-volume.png", "button-volume-hover.png",
+            "button-volume-none.png", "button-volume-none-hover.png",
         ]
         self.assets = {}
         for filename in asset_files:
@@ -495,7 +532,6 @@ class InternetRadioGadget(BaseGadget):
         top_layout = QVBoxLayout(self)
         top_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 2. 创建一个主容器
         self.main_container = QWidget(self)
         self.main_container.setObjectName("MainContainer")
         self.main_container.setStyleSheet("""
@@ -508,15 +544,12 @@ class InternetRadioGadget(BaseGadget):
         
         top_layout.addWidget(self.main_container)
 
-        # 3. 将原本的 main_layout 挂载到主容器上，而不是 self 上
         main_layout = QVBoxLayout(self.main_container)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # 4. 构建黑色标题栏
         self.title_bar = QWidget()
         self.title_bar.setFixedHeight(30)
-        # 标题栏需要上方的圆角适配外框，下方直角
         self.title_bar.setStyleSheet("""
             QWidget {
                 background-color: black;
@@ -540,30 +573,25 @@ class InternetRadioGadget(BaseGadget):
         content_layout.setSpacing(15)
         main_layout.addLayout(content_layout)
 
-        # 1. 顶部封面
-        self.favicon = CircularFavicon(size=140, parent=self)
+        default_logo_path = os.path.join(self.gadget_assets_path, "iRadio-default.png")
+        self.favicon = CircularFavicon(size=140, default_img_path=default_logo_path, parent=self.main_container)
         fav_layout = QHBoxLayout()
         fav_layout.addWidget(self.favicon, alignment=Qt.AlignCenter)
         content_layout.addLayout(fav_layout)
 
-        # 2. 标题和副标题
         #self.lbl_title = QLabel("INTERNET RADIO")
         #self.lbl_title.setFont(QFont("Arial", 14, QFont.Bold))
         #self.lbl_title.setAlignment(Qt.AlignCenter)
         
-        self.lbl_title = ScrollingLabel(QFont("Arial", 14, QFont.Bold))
-        self.lbl_subtitle = QLabel("Loading stations...")
-        self.lbl_subtitle.setAlignment(Qt.AlignCenter)
+        self.lbl_title = ScrollingLabel("INTERNET RADIO", QFont("Arial", 14, QFont.Bold), QColor("black"))
         
-        self.lbl_subtitle = QLabel("Loading stations...")
+        self.lbl_subtitle = ScrollingLabel("Loading...", QFont("Arial", 10), QColor("#666666"))
         self.lbl_subtitle.setFont(QFont("Arial", 10))
         self.lbl_subtitle.setStyleSheet("color: #666;")
-        self.lbl_subtitle.setAlignment(Qt.AlignCenter)
         
         content_layout.addWidget(self.lbl_title)
         content_layout.addWidget(self.lbl_subtitle)
 
-        # 3. 播放控制栏 (上一首, 播放/暂停, 下一首)
         control_layout = QHBoxLayout()
         control_layout.setAlignment(Qt.AlignCenter)
         control_layout.setSpacing(20)
@@ -581,13 +609,13 @@ class InternetRadioGadget(BaseGadget):
         self.btn_play = QImageButton((64, 64), 
             self.assets["button-play"], 
             self.assets["button-play-hover"], 
-            self.assets["button-play-disable"],
+            self.assets["button-play"],
             callback=self.playFM)
             
         self.btn_pause = QImageButton((64, 64), 
             self.assets["button-pause"],
             self.assets["button-pause-hover"], 
-            self.assets["button-pause-disable"],
+            self.assets["button-pause"],
             callback=self.pauseFM)
         
         self.btn_next = QImageButton((48, 48), 
@@ -596,7 +624,6 @@ class InternetRadioGadget(BaseGadget):
             self.assets["button-next"],
             callback=self.play_next)
 
-        # 初始化时隐藏暂停按钮
         self.btn_pause.hide()
 
         self.btn_prev.setEnabled(False)
@@ -605,19 +632,23 @@ class InternetRadioGadget(BaseGadget):
 
         control_layout.addWidget(self.btn_prev)
         control_layout.addWidget(self.btn_play)
-        control_layout.addWidget(self.btn_pause) # Play 和 Pause 占同一个坑位
+        control_layout.addWidget(self.btn_pause)
         control_layout.addWidget(self.btn_next)
         content_layout.addLayout(control_layout)
 
-        # 4. 音量控制
         vol_layout = QHBoxLayout()
-        lbl_vol = QLabel("Volume")
-        lbl_vol.setFont(QFont("Arial", 10))
+        vol_layout.setAlignment(Qt.AlignVCenter)
         
+        self.btn_volume = QImageButton((24, 24), 
+            self.assets["button-volume"], 
+            self.assets.get("button-volume-hover", self.assets["button-volume"]), 
+            self.assets.get("button-volume-disable", self.assets["button-volume"]),
+            callback=self.toggle_mute)
+        
+        self.last_volume = 80 # 用于记录静音前的音量
         self.slider_vol = QSlider(Qt.Horizontal)
         self.slider_vol.setRange(0, 100)
-        self.slider_vol.setValue(80)
-        # 现代化的纤细滑动条样式
+        self.slider_vol.setValue(self.last_volume)
         self.slider_vol.setStyleSheet("""
             QSlider::groove:horizontal {
                 border-radius: 2px;
@@ -637,11 +668,13 @@ class InternetRadioGadget(BaseGadget):
             }
         """)
         
-        vol_layout.addWidget(lbl_vol)
+        self.slider_vol.valueChanged.connect(self.change_volume)
+        self.is_muted = False
+        
+        vol_layout.addWidget(self.btn_volume)
         vol_layout.addWidget(self.slider_vol)
         content_layout.addLayout(vol_layout)
 
-        # 5. 搜索框
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search")
         self.search_bar.setStyleSheet("""
@@ -655,7 +688,6 @@ class InternetRadioGadget(BaseGadget):
         """)
         content_layout.addWidget(self.search_bar)
 
-        # 6. 电台列表
         self.list_widget = QListWidget()
         self.list_widget.setStyleSheet("""
             QListWidget {
@@ -666,20 +698,61 @@ class InternetRadioGadget(BaseGadget):
                 border-bottom: 1px solid #F0F0F0;
                 padding: 2px;
             }
-            QListWidget::item:selected {
-                background-color: #F5F5F5;
-                color: black;
+            QScrollBar:vertical {
+                border: none;
+                background: #F9F9F9;  
+                width: 8px;           
+                border-radius: 4px;
+                margin: 0px 0px 0px 0px; 
+            }
+            QScrollBar::handle:vertical {
+                background: #333333; 
+                min-height: 30px;
+                border-radius: 4px; 
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #000000;  
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
             }
         """)
         
         self.list_widget.verticalScrollBar().valueChanged.connect(self._on_scroll)
-        self.loaded_station_count = 0  # 记录当前已经加载了多少个电台
-        self.BATCH_SIZE = 40           # 每次只加载 40 个，保证瞬间完成不卡顿
+        self.loaded_station_count = 0 
+        self.BATCH_SIZE = 40 
         
         content_layout.addWidget(self.list_widget)
 
+    def toggle_mute(self):
+        self.is_muted = not self.is_muted
+        if self.is_muted:
+            self.last_volume = self.slider_vol.value()
+            self.slider_vol.setValue(0)
+            # 动态替换图标为静音图标
+            self.btn_volume.normal_pixmap = self.assets["button-volume-none"]
+            self.btn_volume.hover_pixmap = self.assets.get("button-volume-none-hover", self.assets["button-volume-none"])
+        else:
+            self.slider_vol.setValue(self.last_volume if self.last_volume > 0 else 50)
+            # 恢复正常音量图标
+            self.btn_volume.normal_pixmap = self.assets["button-volume"]
+            self.btn_volume.hover_pixmap = self.assets.get("button-volume-hover", self.assets["button-volume"])
+            
+        self.btn_volume.update() # 触发按钮重绘
+
+    def change_volume(self, value):
+        if hasattr(self.player, 'vlc_player'):
+            self.player.vlc_player.audio_set_volume(value)
+            
+        if value > 0 and self.is_muted:
+            self.toggle_mute()
+    
     def create_round_button(self, text, size):
-        """辅助方法：创建黑色圆形控制按钮"""
         btn = QPushButton(text)
         btn.setFixedSize(size, size)
         radius = size // 2
@@ -697,10 +770,18 @@ class InternetRadioGadget(BaseGadget):
                 background-color: #CCCCCC;
             }}
         """)
-        btn.setEnabled(False) # 初始化时禁用，直到 API 加载完成
+        btn.setEnabled(False)
         return btn
+        
+    def refresh_list_ui(self):
+        """遍历当前加载的列表项，更新它们的高亮和播放状态"""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            widget = self.list_widget.itemWidget(item)
+            if widget:
+                is_current = (i == self.current_playing_index)
+                widget.set_active_state(is_current, self.is_playing)
 
-    # --- 后台逻辑维持原样，调整了 UI 更新的方式 ---
     def initization(self):
         self.init_thread = QThread(parent=self)
         self.init_worker = InitializationWorker(self.api)
@@ -715,8 +796,7 @@ class InternetRadioGadget(BaseGadget):
 
     @Slot(str)
     def update_status_report(self, status_text: str):
-        # 原来复杂的滚动文本逻辑，现在直接更新副标题即可
-        self.lbl_subtitle.setText(status_text)
+        self.lbl_subtitle.update_status_report(status_text)
 
     @Slot()
     def on_initialization_finished(self):
@@ -743,18 +823,14 @@ class InternetRadioGadget(BaseGadget):
 
         total_stations = len(self.api.radio_data)
         
-        # 如果已经全部加载完毕，就不用再处理了
         if self.loaded_station_count >= total_stations:
             return 
 
-        # 计算这一批应该加载到哪个索引
         end_index = min(self.loaded_station_count + self.BATCH_SIZE, total_stations)
 
-        # 只循环生成这一批次 (比如 40 个)，速度极快，不会卡死主线程
         for i in range(self.loaded_station_count, end_index):
             radio = self.api.radio_data[i]
             
-            # 防止名字太长
             name = radio.get('name', 'Unknown Station')
             if len(name) > 25: 
                 name = name[:22] + "..."
@@ -762,9 +838,8 @@ class InternetRadioGadget(BaseGadget):
             item = QListWidgetItem(self.list_widget)
             item.setSizeHint(QSize(0, 50)) # 设置行高
             
-            custom_widget = StationItemWidget(name)
+            custom_widget = StationItemWidget(name, self.assets, self.gadget_assets_path)
             
-            # 【注意这里的 lambda 写法】：必须把 i 绑定到默认参数 idx 上，否则所有的按钮都会播放最后一首！
             custom_widget.btn_play.clicked.connect(
                 lambda checked=False, idx=i: self.play_station_by_index(idx)
             )
@@ -778,7 +853,7 @@ class InternetRadioGadget(BaseGadget):
     def _on_scroll(self, value):
         """当滚动条发生变化时触发"""
         scrollbar = self.list_widget.verticalScrollBar()
-        # 如果滚动条滑到了最底部（或者距离底部还有一点距离），就加载下一批
+        
         if value >= scrollbar.maximum() - 2:
             self._load_more_stations()
 
@@ -794,24 +869,31 @@ class InternetRadioGadget(BaseGadget):
         
         self.favicon.load_from_url(radio.get('favicon', ''))
         
-        # 触发跑马灯！
         title = radio.get('name', 'Unknown Station').upper()
         self.lbl_title.update_status_report(title)
         
-        # 动态隐藏 Play，显示 Pause
+        subtitle_text = radio.get('tags', '').replace(',', ' • ').upper() or radio.get('country', 'UNKNOWN')
+        self.lbl_subtitle.update_status_report(subtitle_text)
+        
         self.btn_play.hide()
         self.btn_pause.show()
         
         self.player.playFM(radio)
+        
+        self.is_playing = True
+        self.refresh_list_ui()
 
     def pauseFM(self):
         self.lbl_title.update_status_report("PAUSED")
         
-        # 动态隐藏 Pause，显示 Play
         self.btn_pause.hide()
         self.btn_play.show()
         
         self.player.pauseFM()
+        
+        self.is_playing = False
+        self.refresh_list_ui()
+        
     def toggle_play_pause(self):
         if self.is_playing:
             self.pauseFM()
