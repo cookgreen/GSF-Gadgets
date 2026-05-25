@@ -6,6 +6,7 @@ from typing import Optional, Callable, Tuple, Any
 from PySide6.QtWidgets import *
 from PySide6.QtGui import *
 from PySide6.QtCore import *
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
 from gsf.gadget_base import BaseGadget
 
@@ -15,6 +16,66 @@ from radio_player import *
 AUDIO_FORMAT = "S16N"
 CHANNELS = 2
 RATE = 44100
+
+class CircularFavicon(QWidget):
+    def __init__(self, size=150, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self.image_size = size
+        
+        # 默认占位图（比如你截图里的声波图片）
+        self.current_pixmap = QPixmap(size, size)
+        self.current_pixmap.fill(QColor("#2C2C2C")) # 默认深灰色背景
+        
+        # 添加图片中那种淡淡的阴影效果
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setOffset(0, 5)
+        self.setGraphicsEffect(shadow)
+
+        # 用于异步下载图片的网络管理器
+        self.network_manager = QNetworkAccessManager(self)
+        self.network_manager.finished.connect(self._on_image_downloaded)
+
+    def load_from_url(self, url_str: str):
+        """传入 API 中的 favicon URL 进行加载"""
+        if not url_str:
+            return
+        request = QNetworkRequest(QUrl(url_str))
+        self.network_manager.get(request)
+
+    def _on_image_downloaded(self, reply: QNetworkReply):
+        if reply.error() == QNetworkReply.NetworkError.NoError:
+            img_data = reply.readAll()
+            pixmap = QPixmap()
+            if pixmap.loadFromData(img_data):
+                # 将下载的图片缩放到我们控件的尺寸，保持比例，裁剪多余部分
+                self.current_pixmap = pixmap.scaled(
+                    self.image_size, self.image_size, 
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding, 
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                self.update() # 触发 paintEvent 重绘
+        reply.deleteLater()
+
+    def paintEvent(self, event):
+        """核心：将矩形图片裁剪为圆形"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        # 创建一个圆形的裁剪路径
+        path = QPainterPath()
+        path.addEllipse(0, 0, self.width(), self.height())
+        
+        # 应用裁剪路径
+        painter.setClipPath(path)
+        
+        # 居中绘制图片
+        x_offset = (self.width() - self.current_pixmap.width()) // 2
+        y_offset = (self.height() - self.current_pixmap.height()) // 2
+        painter.drawPixmap(x_offset, y_offset, self.current_pixmap)
 
 class InitializationWorker(QObject):
     status_updated = Signal(str) 
@@ -40,54 +101,62 @@ class InitializationWorker(QObject):
         
         self.initialization_finished.emit()
 
-class QImageButton:
-    def __init__(self,
-                 pos: tuple[int, int],
-                 size: tuple[int, int],
+class QImageButton(QWidget):
+    clicked = Signal() # 添加点击信号
+
+    def __init__(self, size: tuple[int, int],
                  normal_pixmap: QPixmap,
                  hover_pixmap: QPixmap,
                  disabled_pixmap: QPixmap,
-                 callback: Optional[Callable[..., None]] = None):
-        self.rect = QRect(pos[0], pos[1], size[0], size[1])
+                 callback=None, parent=None):
+        super().__init__(parent)
+        # 不再需要传入 pos，Layout 会自动安排位置！
+        self.setFixedSize(size[0], size[1])
         
         self.normal_pixmap = normal_pixmap
         self.hover_pixmap = hover_pixmap
         self.disabled_pixmap = disabled_pixmap
-        
         self.callback = callback
         
         self.hovered = False
-        self.isEnabled = True
-        self.isVisible = True 
+        self._is_enabled = True 
+        self.setMouseTracking(True) # 开启鼠标追踪
 
-    def checkIsEnter(self, point: QPoint):
-        return self.rect.contains(point)
+    def setEnabled(self, enabled: bool):
+        self._is_enabled = enabled
+        self.update()
 
-    def mouseMove(self, point: QPoint) -> bool:
-        if not self.isEnabled:
-            return False
+    def enterEvent(self, event):
+        if self._is_enabled:
+            self.hovered = True
+            self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if self._is_enabled:
+            self.hovered = False
+            self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._is_enabled:
+            if self.callback:
+                self.callback()
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         
-        is_over = self.checkIsEnter(point)
-        if is_over != self.hovered:
-            self.hovered = is_over
-            return True 
-        return False
-
-    def mousePress(self):
-        if self.isEnabled and self.callback:
-            self.callback()
-            
-    def paint(self, painter: QPainter):
-        painter.setRenderHint(QPainter.Antialiasing)
-        if not self.isVisible:
-            return
-
-        if not self.isEnabled:
-            painter.drawPixmap(self.rect, self.disabled_pixmap)
+        rect = self.rect()
+        if not self._is_enabled:
+            painter.drawPixmap(rect, self.disabled_pixmap)
         elif self.hovered:
-            painter.drawPixmap(self.rect, self.hover_pixmap)
+            painter.drawPixmap(rect, self.hover_pixmap)
         else:
-            painter.drawPixmap(self.rect, self.normal_pixmap)
+            painter.drawPixmap(rect, self.normal_pixmap)
             
 class AudioVisualizer(QWidget):
     def __init__(self, parent=None):
@@ -286,22 +355,48 @@ class AudioProcessor(QObject):
         
         return bands
 
-class InternetRadioGadget(BaseGadget):
-    def __init__(self, gadget_path):
-        super().__init__(gadget_path)
+# ==========================================
+# 2. 自定义电台列表项组件
+# ==========================================
+class StationItemWidget(QWidget):
+    """用于 QListWidget 的自定义行，包含图标、电台名和播放按钮"""
+    def __init__(self, station_name, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 5, 10, 5)
         
-        self.setMouseTracking(True)
-        self.gadget_path = gadget_path
-        self.gadget_assets_path = os.path.join(self.gadget_path, "assets")
-        self.assets: Dict[str, QPixmap] = {}
+        # 左侧图标 (这里用一个简单的黑圈模拟，实际可替换为QIcon)
+        self.icon_label = QLabel("🎧") 
+        self.icon_label.setFont(QFont("Arial", 16))
         
-        self._load_assets()
+        # 中间电台名称
+        self.name_label = QLabel(station_name)
+        self.name_label.setFont(QFont("Arial", 11, QFont.Bold))
         
-        self.api = RadioBrowserApi()
+        # 右侧播放按钮
+        self.btn_play = QPushButton("▶")
+        self.btn_play.setFixedSize(28, 28)
+        self.btn_play.setStyleSheet("""
+            QPushButton {
+                background-color: black;
+                color: white;
+                border-radius: 14px;
+                font-size: 12px;
+            }
+            QPushButton:hover { background-color: #333; }
+        """)
         
-        self.status_font = QFont("Arial", 15)
-        self.status_rect = QRect(21, 15, 144, 37)
+        layout.addWidget(self.icon_label)
+        layout.addWidget(self.name_label)
+        layout.addStretch()
+        layout.addWidget(self.btn_play)
 
+class ScrollingLabel(QWidget):
+    def __init__(self, font: QFont, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(30)
+        self.status_font = font
+        
         self.scroll_timer = QTimer(self)
         self.scroll_timer.setInterval(40)
         self.scroll_timer.timeout.connect(self._update_scroll_offset)
@@ -309,125 +404,303 @@ class InternetRadioGadget(BaseGadget):
         self.scroll_offset = 0
         self.scrolling_text = ""
         self.scroll_loop_point = 0
-        
         self.status_report = ""
-        self.current_playing_index = 0
+
+    @Slot(str)
+    def update_status_report(self, status_text: str):
+        self.scroll_timer.stop()
+        self.scroll_offset = 0
+        self.status_report = status_text
         
+        fm = QFontMetrics(self.status_font)
+        text_width = fm.horizontalAdvance(self.status_report)
+        
+        # 如果文字宽度大于控件宽度，开启跑马灯
+        if text_width > self.width() and self.width() > 0:
+            gap = "    "
+            self.scrolling_text = self.status_report + gap + self.status_report
+            self.scroll_loop_point = fm.horizontalAdvance(self.status_report + gap)
+            self.scroll_timer.start()
+            
+        self.update()
+
+    @Slot()
+    def _update_scroll_offset(self):
+        self.scroll_offset += 1
+        if self.scroll_offset >= self.scroll_loop_point:
+            self.scroll_offset = 0
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setFont(self.status_font)
+        # 这里我用了深灰色，你也可以改回你旧代码里的 Qt.GlobalColor.green
+        painter.setPen(Qt.GlobalColor.black) 
+        
+        rect = self.rect()
+        painter.setClipRect(rect)
+        
+        if self.scroll_timer.isActive():
+            painter.drawText(rect.x() - self.scroll_offset, rect.y(),
+                             self.scroll_loop_point * 2, rect.height(),
+                             Qt.AlignmentFlag.AlignVCenter, self.scrolling_text)
+        else:
+            painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
+                             self.status_report)
+
+# ==========================================
+# 3. 主 Gadget 界面
+# ==========================================
+class InternetRadioGadget(BaseGadget):
+    def __init__(self, gadget_path):
+        super().__init__(gadget_path)
+        self.gadget_path = gadget_path
+        self.gadget_assets_path = os.path.join(self.gadget_path, "assets")
+        
+        # --- 数据与业务层初始化 ---
+        self.api = RadioBrowserApi()
+        self.player = RadioPlayer(parent=self)
+        self.current_playing_index = 0
+        self.is_playing = False
+        
+        # --- UI 初始化 ---
+        self.setWindowTitle('iRadio')
+        self.resize(320, 600)  # 调整为类似手机屏幕的垂直比例
+        self.setStyleSheet("background-color: white;")
+        
+        self._load_assets()
+        
+        self.setup_ui()
         self.initization()
         
-        # --- specific logic ---
-        self.setWindowTitle('Internet Radio')
-        self.resize(384, 174)
-        
-        self.hasReseted = True
-        
-        # --- Audio Visualizer ---
-        self.player = RadioPlayer(parent=self)
-        
-        self.visualizer = AudioVisualizer(self)
-        self.visualizer.setGeometry(21, 60, 340, 15)
-        self.visualizer.setFixedHeight(65)
-        self.visualizer.show()
-        
-        self.processor = AudioProcessor(num_bands=32)
-        
-        self.processing_thread = QThread(parent=self)
-        self.processor.moveToThread(self.processing_thread)
-        
-        self.player.audio_data_ready.connect(self.processor.process_data)
-        self.processor.bands_ready.connect(self.visualizer.update_bands)
-        
-        self.processing_thread.start()
-        
-        # --- Timer ---
-        timer = QTimer(self)
-        timer.timeout.connect(self.update) # update() will trigger paintEvent
-        timer.start(1000)
-
-        self.hovered_button: Optional[QImageButton] = None
-        self.all_buttons: List[QImageButton] = []
-        
-        # --- load images ---
-        self.main_panel = QImage(os.path.join(self.gadget_assets_path, "main_panel.png"))
-        
-        self.isAudioNone = False
-        self._create_buttons()
-        
     def _load_assets(self):
+        # 补全你图中的图片名称
         asset_files = [
-            "button-play.png",
-            "button-play-hover.png",
-            "button-play-disable.png",
-            "button-pause.png",
-            "button-pause-hover.png",
-            "button-pause-disable.png",
-            "button-random.png",
-            "button-random-hover.png",
-            "button-random-disable.png",
-            "button-stop.png",
-            "button-stop-hover.png",
-            "button-stop-disable.png",
-            "button-volume.png",
-            "button-volume-hover.png",
-            "button-volume-disable.png",
-            "button-volume-none.png",
-            "button-volume-none-hover.png",
+            "button-play.png", "button-play-hover.png", "button-play-disable.png",
+            "button-pause.png", "button-pause-hover.png", "button-pause-disable.png",
+            "button-next.png", "button-next-hover.png", "button-next-disable.png", # 假设你有disable，没有就用普通图代替
+            "button-prev.png", "button-prev-hover.png", "button-prev-disable.png",
         ]
-
+        self.assets = {}
         for filename in asset_files:
             key = filename.split('.')[0]
             path = os.path.join(self.gadget_assets_path, filename)
             self.assets[key] = QPixmap(path)
-    
-    def _create_buttons(self):
-        self.btnPlay = QImageButton((168, 124), (48, 48), 
-            self.assets["button-play"],
-            self.assets["button-play-hover"],
+
+    def setup_ui(self):
+        self.setFixedWidth(320)
+        
+        """构建现代化的垂直布局"""
+        top_layout = QVBoxLayout(self)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 2. 创建一个主容器
+        self.main_container = QWidget(self)
+        self.main_container.setObjectName("MainContainer")
+        self.main_container.setStyleSheet("""
+            QWidget#MainContainer {
+                background-color: white;
+                border: 2px solid black;
+                border-radius: 20px;
+            }
+        """)
+        
+        top_layout.addWidget(self.main_container)
+
+        # 3. 将原本的 main_layout 挂载到主容器上，而不是 self 上
+        main_layout = QVBoxLayout(self.main_container)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # 4. 构建黑色标题栏
+        self.title_bar = QWidget()
+        self.title_bar.setFixedHeight(30)
+        # 标题栏需要上方的圆角适配外框，下方直角
+        self.title_bar.setStyleSheet("""
+            QWidget {
+                background-color: black;
+                border-top-left-radius: 17px;  /* 比外框小一点，防止溢出 */
+                border-top-right-radius: 17px;
+                border-bottom-left-radius: 0px;
+                border-bottom-right-radius: 0px;
+            }
+        """)
+        title_layout = QHBoxLayout(self.title_bar)
+        title_layout.setContentsMargins(10, 0, 10, 0)
+        
+        lbl_titlebar = QLabel("iRadio - Internet Radio based on GSF")
+        lbl_titlebar.setFont(QFont("Arial", 9, QFont.Bold))
+        lbl_titlebar.setStyleSheet("color: white; background-color: transparent;")
+        title_layout.addWidget(lbl_titlebar, alignment=Qt.AlignCenter)
+        main_layout.addWidget(self.title_bar)
+        
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(20, 20, 20, 20)
+        content_layout.setSpacing(15)
+        main_layout.addLayout(content_layout)
+
+        # 1. 顶部封面
+        self.favicon = CircularFavicon(size=140, parent=self)
+        fav_layout = QHBoxLayout()
+        fav_layout.addWidget(self.favicon, alignment=Qt.AlignCenter)
+        content_layout.addLayout(fav_layout)
+
+        # 2. 标题和副标题
+        #self.lbl_title = QLabel("INTERNET RADIO")
+        #self.lbl_title.setFont(QFont("Arial", 14, QFont.Bold))
+        #self.lbl_title.setAlignment(Qt.AlignCenter)
+        
+        self.lbl_title = ScrollingLabel(QFont("Arial", 14, QFont.Bold))
+        self.lbl_subtitle = QLabel("Loading stations...")
+        self.lbl_subtitle.setAlignment(Qt.AlignCenter)
+        
+        self.lbl_subtitle = QLabel("Loading stations...")
+        self.lbl_subtitle.setFont(QFont("Arial", 10))
+        self.lbl_subtitle.setStyleSheet("color: #666;")
+        self.lbl_subtitle.setAlignment(Qt.AlignCenter)
+        
+        content_layout.addWidget(self.lbl_title)
+        content_layout.addWidget(self.lbl_subtitle)
+
+        # 3. 播放控制栏 (上一首, 播放/暂停, 下一首)
+        control_layout = QHBoxLayout()
+        control_layout.setAlignment(Qt.AlignCenter)
+        control_layout.setSpacing(20)
+        self.btn_prev =None
+        self.btn_play =None
+        self.btn_pause =None
+        self.btn_next =None
+        
+        self.btn_prev = QImageButton((48, 48), 
+            self.assets["button-prev"], 
+            self.assets["button-prev-hover"], 
+            self.assets["button-prev"],
+            callback=self.play_prev)
+            
+        self.btn_play = QImageButton((64, 64), 
+            self.assets["button-play"], 
+            self.assets["button-play-hover"], 
             self.assets["button-play-disable"],
             callback=self.playFM)
-        self.btnPlay.isEnabled = False
-        
-        self.btnPause = QImageButton((168, 124), (48, 48), 
+            
+        self.btn_pause = QImageButton((64, 64), 
             self.assets["button-pause"],
-            self.assets["button-pause-hover"],
+            self.assets["button-pause-hover"], 
             self.assets["button-pause-disable"],
             callback=self.pauseFM)
-        self.btnPause.isEnabled = False
         
-        self.btnRandom = QImageButton((76, 131), (34, 34), 
-            self.assets["button-random"],
-            self.assets["button-random-hover"],
-            self.assets["button-random-disable"],
-            callback=self.randomPlayFM)
-        self.btnRandom.isEnabled = False
+        self.btn_next = QImageButton((48, 48), 
+            self.assets["button-next"], 
+            self.assets["button-next-hover"], 
+            self.assets["button-next"],
+            callback=self.play_next)
+
+        # 初始化时隐藏暂停按钮
+        self.btn_pause.hide()
+
+        self.btn_prev.setEnabled(False)
+        self.btn_play.setEnabled(False)
+        self.btn_next.setEnabled(False)
+
+        control_layout.addWidget(self.btn_prev)
+        control_layout.addWidget(self.btn_play)
+        control_layout.addWidget(self.btn_pause) # Play 和 Pause 占同一个坑位
+        control_layout.addWidget(self.btn_next)
+        content_layout.addLayout(control_layout)
+
+        # 4. 音量控制
+        vol_layout = QHBoxLayout()
+        lbl_vol = QLabel("Volume")
+        lbl_vol.setFont(QFont("Arial", 10))
         
-        self.btnStop = QImageButton((275, 131), (34, 34), 
-            self.assets["button-stop"],
-            self.assets["button-stop-hover"],
-            self.assets["button-stop-disable"],
-            callback=self.stopFM)
-        self.btnStop.isEnabled = False
+        self.slider_vol = QSlider(Qt.Horizontal)
+        self.slider_vol.setRange(0, 100)
+        self.slider_vol.setValue(80)
+        # 现代化的纤细滑动条样式
+        self.slider_vol.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border-radius: 2px;
+                height: 4px;
+                background: #E0E0E0;
+            }
+            QSlider::handle:horizontal {
+                background: black;
+                width: 14px;
+                height: 14px;
+                margin: -5px 0; 
+                border-radius: 7px;
+            }
+            QSlider::sub-page:horizontal {
+                background: black;
+                border-radius: 2px;
+            }
+        """)
         
-        self.btnVolume = QImageButton((188, 19), (30, 30), 
-            self.assets["button-volume"],
-            self.assets["button-volume-hover"],
-            self.assets["button-volume-disable"],
-            callback=self.volumeSet)
-        self.btnStop.isEnabled = False
+        vol_layout.addWidget(lbl_vol)
+        vol_layout.addWidget(self.slider_vol)
+        content_layout.addLayout(vol_layout)
+
+        # 5. 搜索框
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Search")
+        self.search_bar.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #CCC;
+                border-radius: 10%;
+                padding: 8px 15px;
+                font-size: 12px;
+                background-color: #F9F9F9;
+            }
+        """)
+        content_layout.addWidget(self.search_bar)
+
+        # 6. 电台列表
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                border: none;
+                background-color: transparent;
+            }
+            QListWidget::item {
+                border-bottom: 1px solid #F0F0F0;
+                padding: 2px;
+            }
+            QListWidget::item:selected {
+                background-color: #F5F5F5;
+                color: black;
+            }
+        """)
         
-        self.btnVolumeNone = QImageButton((188, 19), (30, 30), 
-            self.assets["button-volume-none"],
-            self.assets["button-volume-none-hover"],
-            self.assets["button-volume-disable"],
-            callback=self.volumeSet)
-        self.btnStop.isEnabled = False
-            
-        self.all_buttons.append(self.btnRandom)
-        self.all_buttons.append(self.btnStop)
-        self.all_buttons.append(self.btnPlay)
-        self.all_buttons.append(self.btnVolume)
-        self.all_buttons.append(self.btnVolumeNone)
-    
+        self.list_widget.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        self.loaded_station_count = 0  # 记录当前已经加载了多少个电台
+        self.BATCH_SIZE = 40           # 每次只加载 40 个，保证瞬间完成不卡顿
+        
+        content_layout.addWidget(self.list_widget)
+
+    def create_round_button(self, text, size):
+        """辅助方法：创建黑色圆形控制按钮"""
+        btn = QPushButton(text)
+        btn.setFixedSize(size, size)
+        radius = size // 2
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: black;
+                color: white;
+                border-radius: {radius}px;
+                font-size: {int(size*0.4)}px;
+            }}
+            QPushButton:hover {{
+                background-color: #333333;
+            }}
+            QPushButton:disabled {{
+                background-color: #CCCCCC;
+            }}
+        """)
+        btn.setEnabled(False) # 初始化时禁用，直到 API 加载完成
+        return btn
+
+    # --- 后台逻辑维持原样，调整了 UI 更新的方式 ---
     def initization(self):
         self.init_thread = QThread(parent=self)
         self.init_worker = InitializationWorker(self.api)
@@ -437,153 +710,124 @@ class InternetRadioGadget(BaseGadget):
         self.init_worker.initialization_finished.connect(self.on_initialization_finished)
         
         self.init_thread.started.connect(self.init_worker.run)
-        
         self.init_thread.finished.connect(self.init_thread.deleteLater)
-        
         self.init_thread.start()
 
     @Slot(str)
     def update_status_report(self, status_text: str):
-        self.scroll_timer.stop()
-        self.scroll_offset = 0
-        
-        self.status_report = status_text
-        
-        fm = QFontMetrics(self.status_font)
-        text_width = fm.horizontalAdvance(self.status_report)
-        
-        if text_width > self.status_rect.width():
-            gap = "    "
-            self.scrolling_text = self.status_report + gap + self.status_report
-            self.scroll_loop_point = fm.horizontalAdvance(self.status_report + gap)
-            
-            self.scroll_timer.start()
-        
-        self.update()
-    
-    @Slot()
-    def _update_scroll_offset(self):
-        self.scroll_offset += 1
-        
-        if self.scroll_offset >= self.scroll_loop_point:
-            self.scroll_offset = 0
-            
-        self.update()
+        # 原来复杂的滚动文本逻辑，现在直接更新副标题即可
+        self.lbl_subtitle.setText(status_text)
 
     @Slot()
     def on_initialization_finished(self):
         self.update_status_report("Ready")
         
-        self.btnPlay.isEnabled = True
-        self.btnPause.isEnabled = True
-        self.btnRandom.isEnabled = True
-        self.btnStop.isEnabled = True
+        self.btn_prev.setEnabled(True)
+        self.btn_play.setEnabled(True)
+        self.btn_pause.setEnabled(True)
+        self.btn_next.setEnabled(True)
         
+        self.populate_radio_list()
         self.init_thread.quit()
-    
-    def playFM(self):
-        radio = self.api.radio_data[self.current_playing_index]
-        
-        self.update_status_report(f"Playing {radio['name']}")
-        self.player.playFM(radio)
-    
-    def pauseFM(self):
-        self.update_status_report("Paused")
-        self.player.pauseFM()
-        
-    def randomPlayFM(self):
-        self.current_playing_index = random.randint(0, len(self.api.radio_data) - 1)
-        radio = self.api.radio_data[self.current_playing_index]
-        
-        self.update_status_report(f"Playing {radio['name']}")
-        
-        self.player.playFM(radio)
-    
-    def stopFM(self):
-        self.update_status_report("Ready")
-        self.player.stopFM()
-        
-    def volumeSet(self):
-        self.isAudioNone = not self.isAudioNone
-    
-    def mouseMoveEvent(self, event: QMouseEvent):
-        current_hover = None
-        for btn in self.all_buttons:
-            if btn.isVisible and btn.checkIsEnter(event.pos()):
-                current_hover = btn
-                break
-        
-        if self.hovered_button is not current_hover:
-            if self.hovered_button:
-                self.hovered_button.hovered = False
-            if current_hover:
-                current_hover.hovered = True
-            
-            self.hovered_button = current_hover
-            self.update()
 
-        super().mouseMoveEvent(event)
-    
-    def mousePressEvent(self, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton:
-            for btn in self.all_buttons:
-                if btn.isVisible and btn.isEnabled and btn.checkIsEnter(event.pos()):
-                    btn.mousePress()
-                    return
-        super().mousePressEvent(event)
-        
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        target_rect = QRect(0, 0, 384, 178)
-        painter.drawImage(target_rect, self.main_panel)
-        
-        painter.fillRect(self.status_rect, Qt.GlobalColor.black)
+    def populate_radio_list(self):
+        """初始化列表，重置计数器并加载第一批"""
+        self.list_widget.clear()
+        self.loaded_station_count = 0
+        self._load_more_stations()
 
-        painter.setClipRect(self.status_rect)
+    def _load_more_stations(self):
+        """核心逻辑：分批生成带 Widget 的列表项"""
+        if not self.api.radio_data:
+            return
+
+        total_stations = len(self.api.radio_data)
         
-        painter.setFont(self.status_font)
-        painter.setPen(Qt.GlobalColor.green)
-        
-        if self.scroll_timer.isActive():
-            painter.drawText(self.status_rect.x() - self.scroll_offset, self.status_rect.y(),
-                             self.scroll_loop_point * 2, self.status_rect.height(),
-                             Qt.AlignmentFlag.AlignVCenter, self.scrolling_text)
-        else:
-            painter.drawText(self.status_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                             self.status_report)
-        
-        painter.setClipping(False)
-        
-        self.btnRandom.paint(painter)
-        self.btnStop.paint(painter)
-        
-        if self.player.vlc_player.is_playing():
-            self.btnPause.paint(painter)
+        # 如果已经全部加载完毕，就不用再处理了
+        if self.loaded_station_count >= total_stations:
+            return 
+
+        # 计算这一批应该加载到哪个索引
+        end_index = min(self.loaded_station_count + self.BATCH_SIZE, total_stations)
+
+        # 只循环生成这一批次 (比如 40 个)，速度极快，不会卡死主线程
+        for i in range(self.loaded_station_count, end_index):
+            radio = self.api.radio_data[i]
             
-            if self.btnPause not in self.all_buttons:
-                self.all_buttons.append(self.btnPause)
-            if self.btnPlay in self.all_buttons:
-                self.all_buttons.remove(self.btnPlay)
-        else:
-            self.btnPlay.paint(painter)
-            
-            if self.btnPlay not in self.all_buttons:
-                self.all_buttons.append(self.btnPlay)
-            if self.btnPause in self.all_buttons:
-                self.all_buttons.remove(self.btnPause)
+            # 防止名字太长
+            name = radio.get('name', 'Unknown Station')
+            if len(name) > 25: 
+                name = name[:22] + "..."
                 
-        if not self.isAudioNone:
-            self.btnVolume.paint(painter)
-        else:
-            self.btnVolumeNone.paint(painter)
-        
-        painter.setFont(QFont("Arial", 15))
-        painter.setPen(Qt.GlobalColor.green)
-        
-        painter.end()
+            item = QListWidgetItem(self.list_widget)
+            item.setSizeHint(QSize(0, 50)) # 设置行高
+            
+            custom_widget = StationItemWidget(name)
+            
+            # 【注意这里的 lambda 写法】：必须把 i 绑定到默认参数 idx 上，否则所有的按钮都会播放最后一首！
+            custom_widget.btn_play.clicked.connect(
+                lambda checked=False, idx=i: self.play_station_by_index(idx)
+            )
+            
+            self.list_widget.setItemWidget(item, custom_widget)
 
+        # 更新已加载的数量
+        self.loaded_station_count = end_index
+
+    @Slot(int)
+    def _on_scroll(self, value):
+        """当滚动条发生变化时触发"""
+        scrollbar = self.list_widget.verticalScrollBar()
+        # 如果滚动条滑到了最底部（或者距离底部还有一点距离），就加载下一批
+        if value >= scrollbar.maximum() - 2:
+            self._load_more_stations()
+
+    def play_station_by_index(self, index):
+        self.current_playing_index = index
+        self.playFM()
+
+    def playFM(self):
+        if not self.api.radio_data:
+            return
+            
+        radio = self.api.radio_data[self.current_playing_index]
+        
+        self.favicon.load_from_url(radio.get('favicon', ''))
+        
+        # 触发跑马灯！
+        title = radio.get('name', 'Unknown Station').upper()
+        self.lbl_title.update_status_report(title)
+        
+        # 动态隐藏 Play，显示 Pause
+        self.btn_play.hide()
+        self.btn_pause.show()
+        
+        self.player.playFM(radio)
+
+    def pauseFM(self):
+        self.lbl_title.update_status_report("PAUSED")
+        
+        # 动态隐藏 Pause，显示 Play
+        self.btn_pause.hide()
+        self.btn_play.show()
+        
+        self.player.pauseFM()
+    def toggle_play_pause(self):
+        if self.is_playing:
+            self.pauseFM()
+        else:
+            self.playFM()
+
+    def play_next(self):
+        if not self.api.radio_data: return
+        self.current_playing_index = (self.current_playing_index + 1) % len(self.api.radio_data)
+        self.playFM()
+
+    def play_prev(self):
+        if not self.api.radio_data: return
+        self.current_playing_index = (self.current_playing_index - 1) % len(self.api.radio_data)
+        self.playFM()
+        
 if __name__ == '__main__':
     try:
         if len(sys.argv) < 2:
