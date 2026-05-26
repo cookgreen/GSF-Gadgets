@@ -17,41 +17,90 @@ AUDIO_FORMAT = "S16N"
 CHANNELS = 2
 RATE = 44100
 
+class CircularImageLayer(QWidget):
+    """纯粹的绘图层：强制物理裁切图片为圆形"""
+    def __init__(self, size, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self.pixmap = None
+
+    def set_pixmap(self, pixmap):
+        self.pixmap = pixmap
+        self.update() # 触发重绘
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        
+        # 1. 核心：建立圆形物理裁切路径
+        path = QPainterPath()
+        path.addEllipse(0, 0, self.width(), self.height())
+        painter.setClipPath(path)
+        
+        # 2. 画图
+        if self.pixmap and not self.pixmap.isNull():
+            # 缩放并居中对齐
+            scaled = self.pixmap.scaled(
+                self.width(), self.height(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            x = (self.width() - scaled.width()) // 2
+            y = (self.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+        else:
+            # 如果没有图，画一个深色底
+            painter.fillRect(self.rect(), QColor("#1A1A1A"))
+
 class CircularFavicon(QWidget):
+    """封装层：整合黑色外阴影与白色内光晕"""
     def __init__(self, size=140, default_img_path="", parent=None):
         super().__init__(parent)
         self.setFixedSize(size, size)
-        self.image_size = size
         
-        self.default_pixmap = QPixmap(size, size)
-        if default_img_path and os.path.exists(default_img_path):
-            raw_pixmap = QPixmap(default_img_path)
-            self.default_pixmap = raw_pixmap.scaled(
-                size, size, 
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding, 
-                Qt.TransformationMode.SmoothTransformation
-            )
-        else:
-            self.default_pixmap.fill(QColor("#1A1A1A")) 
+        # ==================================
+        # 底层：负责黑色凸起阴影
+        # ==================================
+        self.shadow_layer = QWidget(self)
+        self.shadow_layer.setFixedSize(size, size)
+        # 用 QSS 画一个纯黑的圆作为阴影的发光体
+        self.shadow_layer.setStyleSheet(f"background-color: black; border-radius: {size//2}px;")
+        
+        outer_shadow = QGraphicsDropShadowEffect(self)
+        outer_shadow.setBlurRadius(40)
+        outer_shadow.setColor(QColor(0, 0, 0, 180)) # 深色阴影
+        outer_shadow.setOffset(0, 8)
+        self.shadow_layer.setGraphicsEffect(outer_shadow)
 
-        self.current_pixmap = self.default_pixmap
+        # ==================================
+        # 顶层：负责画图 + 白色高级光晕
+        # ==================================
+        # 这一层叠在 shadow_layer 正上方
+        self.glow_layer = CircularImageLayer(size, parent=self)
         
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20)
-        shadow.setColor(QColor(0, 0, 0, 60))
-        shadow.setOffset(0, 8)
-        self.setGraphicsEffect(shadow)
+        inner_glow = QGraphicsDropShadowEffect(self)
+        inner_glow.setBlurRadius(30)
+        inner_glow.setColor(QColor(255, 255, 255, 120)) # 半透明白色光晕
+        inner_glow.setOffset(0, 0)
+        self.glow_layer.setGraphicsEffect(inner_glow)
+
+        # ==================================
+        # 数据加载逻辑
+        # ==================================
+        self.default_pixmap = QPixmap()
+        if default_img_path and os.path.exists(default_img_path):
+            self.default_pixmap = QPixmap(default_img_path)
+            self.glow_layer.set_pixmap(self.default_pixmap)
 
         self.network_manager = QNetworkAccessManager(self)
         self.network_manager.finished.connect(self._on_image_downloaded)
 
     def load_from_url(self, url_str: str):
-        self.current_pixmap = self.default_pixmap
-        self.update()
-
-        if not url_str:
-            return
-            
+        # 切换电台时，瞬间切回默认图
+        self.glow_layer.set_pixmap(self.default_pixmap)
+        
+        if not url_str: return
         request = QNetworkRequest(QUrl(url_str))
         self.network_manager.get(request)
 
@@ -60,27 +109,8 @@ class CircularFavicon(QWidget):
             img_data = reply.readAll()
             pixmap = QPixmap()
             if pixmap.loadFromData(img_data) and not pixmap.isNull():
-                self.current_pixmap = pixmap.scaled(
-                    self.image_size, self.image_size, 
-                    Qt.AspectRatioMode.KeepAspectRatioByExpanding, 
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                self.update()
-        
+                self.glow_layer.set_pixmap(pixmap)
         reply.deleteLater()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-
-        path = QPainterPath()
-        path.addEllipse(0, 0, self.width(), self.height())
-        painter.setClipPath(path)
-        
-        x_offset = (self.width() - self.current_pixmap.width()) // 2
-        y_offset = (self.height() - self.current_pixmap.height()) // 2
-        painter.drawPixmap(x_offset, y_offset, self.current_pixmap)
         
 class InitializationWorker(QObject):
     status_updated = Signal(str) 
@@ -378,6 +408,7 @@ class StationItemWidget(QWidget):
         
         self.name_label = QLabel(station_name)
         self.name_label.setFont(QFont("Arial", 11, QFont.Bold))
+        self.name_label.setStyleSheet("color: #DDDDDD; background-color: transparent;")
         
         self.btn_play = QImageButton((28, 28), 
             self.assets["button-play"], 
@@ -525,13 +556,27 @@ class InternetRadioGadget(BaseGadget):
         self.main_container.setObjectName("MainContainer")
         self.main_container.setStyleSheet("""
             QWidget#MainContainer {
-                background-color: white;
-                border: 2px solid black;
+                background-color: transparent; /* 【关键】背景透明 */
+                border: 1px solid rgba(255, 255, 255, 0.15); /* 边框改成半透明的白边，更有玻璃质感 */
                 border-radius: 20px;
             }
         """)
         
         top_layout.addWidget(self.main_container)
+        
+        self.bg_label = QLabel(self.main_container)
+        self.bg_label.setScaledContents(True)
+        # 添加模糊滤镜
+        blur_effect = QGraphicsBlurEffect()
+        blur_effect.setBlurRadius(50) # 半径越大越模糊
+        self.bg_label.setGraphicsEffect(blur_effect)
+
+        # 层级 2：暗色半透明遮罩 (盖在背景图上)
+        self.dark_overlay = QWidget(self.main_container)
+        self.dark_overlay.setStyleSheet("""
+            background-color: rgba(18, 22, 28, 0.75); /* 深灰偏蓝的半透明遮罩 */
+            border-radius: 20px;
+        """)
 
         self.main_layout = QVBoxLayout(self.main_container)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -541,8 +586,9 @@ class InternetRadioGadget(BaseGadget):
         self.title_bar.setFixedHeight(30)
         self.title_bar.setStyleSheet("""
             QWidget {
-                background-color: black;
-                border-top-left-radius: 17px;  /* 比外框小一点，防止溢出 */
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                                                  stop:0 #3e454d, stop:1 #12171b);
+                border-top-left-radius: 17px;
                 border-top-right-radius: 17px;
                 border-bottom-left-radius: 0px;
                 border-bottom-right-radius: 0px;
@@ -560,9 +606,9 @@ class InternetRadioGadget(BaseGadget):
         
         lbl_titlebar = QLabel("iRadio - Internet Radio based on GSF")
         lbl_titlebar.setFont(QFont("Arial", 9, QFont.Bold))
-        lbl_titlebar.setStyleSheet("color: white; background-color: transparent;")
+        lbl_titlebar.setStyleSheet("color: #b9c0c8; background-color: transparent;")
         title_layout.addWidget(lbl_titlebar, alignment=Qt.AlignCenter)
-        title_layout.addStretch() # 保持标题居中
+        title_layout.addStretch() 
         
         self.main_layout.addWidget(self.title_bar)
         
@@ -580,46 +626,55 @@ class InternetRadioGadget(BaseGadget):
         self.search_bar.setPlaceholderText("Search")
         self.search_bar.setStyleSheet("""
             QLineEdit {
-                border: 1px solid #CCC;
-                border-radius: 10%;
-                padding: 8px 15px;
-                font-size: 12px;
-                background-color: #F9F9F9;
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 15px;
+                padding: 5px 15px;
+                color: #FFFFFF;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                background-color: rgba(255, 255, 255, 0.15);
+                border: 1px solid rgba(255, 255, 255, 0.3);
             }
         """)
 
         self.list_widget = QListWidget()
         self.list_widget.setStyleSheet("""
             QListWidget {
-                border: none;
                 background-color: transparent;
+                border: none;
+                outline: none; /* 去掉点击时的虚线框 */
             }
             QListWidget::item {
-                border-bottom: 1px solid #F0F0F0;
-                padding: 2px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* 极弱的分割线 */
+                color: #d3d7da; /* 文字浅灰 */
             }
+            QListWidget::item:selected {
+                background-color: rgba(255, 255, 255, 0.1); /* 选中时微微发亮 */
+                border-radius: 8px;
+            }
+            
+            /* --- 现代胶囊悬浮滚动条 --- */
             QScrollBar:vertical {
                 border: none;
-                background: #F9F9F9;  
-                width: 8px;           
-                border-radius: 4px;
-                margin: 0px 0px 0px 0px; 
+                background: transparent;
+                width: 6px; 
+                margin: 0px; 
             }
             QScrollBar::handle:vertical {
-                background: #333333; 
+                background: rgba(255, 255, 255, 0.2); 
                 min-height: 30px;
-                border-radius: 4px; 
+                border-radius: 3px;
             }
             QScrollBar::handle:vertical:hover {
-                background: #000000;  
+                background: rgba(255, 255, 255, 0.4); 
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                border: none;
-                background: none;
                 height: 0px;
             }
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
+                background: transparent;
             }
         """)
         
@@ -641,9 +696,9 @@ class InternetRadioGadget(BaseGadget):
         #self.lbl_title.setFont(QFont("Arial", 14, QFont.Bold))
         #self.lbl_title.setAlignment(Qt.AlignCenter)
         
-        self.lbl_title = ScrollingLabel("INTERNET RADIO", QFont("Arial", 14, QFont.Bold), QColor("black"))
+        self.lbl_title = ScrollingLabel("INTERNET RADIO", QFont("Arial", 14, QFont.Bold), QColor("#FFFFFF"))
         
-        self.lbl_subtitle = ScrollingLabel("Loading...", QFont("Arial", 10), QColor("#666666"))
+        self.lbl_subtitle = ScrollingLabel("Loading...", QFont("Arial", 10), QColor(255, 255, 255, 150))
         self.lbl_subtitle.setFont(QFont("Arial", 10))
         self.lbl_subtitle.setStyleSheet("color: #666;")
         
@@ -653,10 +708,6 @@ class InternetRadioGadget(BaseGadget):
         control_layout = QHBoxLayout()
         control_layout.setAlignment(Qt.AlignCenter)
         control_layout.setSpacing(20)
-        self.btn_prev =None
-        self.btn_play =None
-        self.btn_pause =None
-        self.btn_next =None
         
         self.btn_prev = QImageButton((48, 48), 
             self.assets["button-prev"], 
@@ -704,26 +755,38 @@ class InternetRadioGadget(BaseGadget):
             callback=self.toggle_mute)
         
         self.last_volume = 80
+        
+        handle_img = os.path.join(self.gadget_assets_path, "slider-handle.png").replace('\\', '/')
+        handle_hover_img = os.path.join(self.gadget_assets_path, "slider-handle-hover.png").replace('\\', '/')
+        
         self.slider_vol = QSlider(Qt.Horizontal)
         self.slider_vol.setRange(0, 100)
         self.slider_vol.setValue(self.last_volume)
-        self.slider_vol.setStyleSheet("""
-            QSlider::groove:horizontal {
+        self.slider_vol.setStyleSheet(f"""
+            QSlider::groove:horizontal {{
                 border-radius: 2px;
                 height: 4px;
-                background: #E0E0E0;
-            }
-            QSlider::handle:horizontal {
-                background: black;
-                width: 14px;
-                height: 14px;
-                margin: -5px 0; 
-                border-radius: 7px;
-            }
-            QSlider::sub-page:horizontal {
-                background: black;
+                background: #E0E0E0; /* 保持纤细滑槽 */
+            }}
+            QSlider::sub-page:horizontal {{
+                background: black; /* 保持已划过区域为黑色 */
                 border-radius: 2px;
-            }
+            }}
+            
+            /* --- 【核心修改】：使用 PNG 图片替换默认 Handle --- */
+            QSlider::handle:horizontal {{
+                background-image: url({handle_img}); /* 指向你的图片 */
+                width: 14px;  /* 必须设置，并且和图片尺寸一致 */
+                height: 14px;
+                margin: -5px 0; /* 用于让 14px 的 handle 在 4px 的 groove 中居中 */
+                border-radius: 7px; /* 确保 QSS 将其处理为圆形裁剪 */
+            }}
+            QSlider::handle:horizontal:hover {{
+                background-image: url({handle_hover_img}); /* 悬停图片 */
+            }}
+            QSlider::handle:horizontal:disabled {{
+                background-image: url({handle_hover_img}); /* 禁用图片 */
+            }}
         """)
         
         self.slider_vol.valueChanged.connect(self.change_volume)
@@ -738,6 +801,13 @@ class InternetRadioGadget(BaseGadget):
         self.BATCH_SIZE = 40 
         
         self.apply_view_layout()
+        
+    def resizeEvent(self, event):
+        """确保背景图和遮罩始终铺满整个主容器"""
+        super().resizeEvent(event)
+        if hasattr(self, 'main_container') and hasattr(self, 'bg_label'):
+            self.bg_label.resize(self.main_container.size())
+            self.dark_overlay.resize(self.main_container.size())
         
     def apply_view_layout(self):
         """根据 is_landscape 状态重新排布界面"""
@@ -911,7 +981,8 @@ class InternetRadioGadget(BaseGadget):
             
         radio = self.api.radio_data[self.current_playing_index]
         
-        self.favicon.load_from_url(radio.get('favicon', ''))
+        favicon_url = radio.get('favicon', '')
+        self.favicon.load_from_url(favicon_url)
         
         title = radio.get('name', 'Unknown Station').upper()
         self.lbl_title.update_status_report(title)
