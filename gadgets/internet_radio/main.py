@@ -811,6 +811,9 @@ class InternetRadioGadget(BaseGadget):
         self.slider_vol.setRange(0, 100)
         self.slider_vol.setValue(self.last_volume)
         self.slider_vol.setStyleSheet("""
+            QSlider {
+                min-height: 24px; 
+            }
             QSlider::groove:horizontal {
                 border-radius: 2px;
                 height: 4px;
@@ -830,7 +833,7 @@ class InternetRadioGadget(BaseGadget):
                                                  stop:0.4 #4d515a,  
                                                  stop:0.8 #292931,  
                                                  stop:1 #CCCCCC);   
-                width: 16px;
+                width: 14px;
                 height: 16px;
                 margin: -6px 0; 
                 border-radius: 8px; 
