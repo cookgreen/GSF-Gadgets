@@ -17,88 +17,83 @@ AUDIO_FORMAT = "S16N"
 CHANNELS = 2
 RATE = 44100
 
-class CircularImageLayer(QWidget):
-    """纯粹的绘图层：强制物理裁切图片为圆形"""
-    def __init__(self, size, parent=None):
+class AdvancedBackgroundContainer(QWidget):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(size, size)
-        self.pixmap = None
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.is_landscape = True
+        self.assets_path = ""
+        self.cached_pixmap = QPixmap()
+        self.current_bg_file = ""
 
-    def set_pixmap(self, pixmap):
-        self.pixmap = pixmap
-        self.update() # 触发重绘
+    def update_background_mode(self, is_landscape, assets_path):
+        self.is_landscape = is_landscape
+        self.assets_path = assets_path
+        
+        bg_file = "bg-landscape.png" if self.is_landscape else "bg-portrait.png"
+        
+        if bg_file != self.current_bg_file:
+            self.current_bg_file = bg_file
+            bg_path = os.path.join(self.assets_path, bg_file)
+            if os.path.exists(bg_path):
+                self.cached_pixmap = QPixmap(bg_path)
+            else:
+                self.cached_pixmap = QPixmap()
+                
+        self.update() 
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.Antialiasing)          # 这次咱们彻底打通它！
+        painter.setRenderHint(QPainter.SmoothPixmapTransform) # 开启平滑图像缩放
+        rect = self.rect()
         
-        # 1. 核心：建立圆形物理裁切路径
         path = QPainterPath()
-        path.addEllipse(0, 0, self.width(), self.height())
+        path.addRoundedRect(0, 0, rect.width(), rect.height(), 20, 20)
         painter.setClipPath(path)
-        
-        # 2. 画图
-        if self.pixmap and not self.pixmap.isNull():
-            # 缩放并居中对齐
-            scaled = self.pixmap.scaled(
-                self.width(), self.height(),
+
+        if not self.cached_pixmap.isNull():
+            scaled = self.cached_pixmap.scaled(
+                rect.size(),
                 Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                 Qt.TransformationMode.SmoothTransformation
             )
-            x = (self.width() - scaled.width()) // 2
-            y = (self.height() - scaled.height()) // 2
+            x = (rect.width() - scaled.width()) // 2
+            y = (rect.height() - scaled.height()) // 2
             painter.drawPixmap(x, y, scaled)
         else:
-            # 如果没有图，画一个深色底
-            painter.fillRect(self.rect(), QColor("#1A1A1A"))
+            painter.fillRect(rect, QColor("#12171b"))
+
+        painter.setClipping(False)
+        
+        pen = QPen(QColor(255, 255, 255, 38), 1) # 15% 透明度的白边
+        painter.setPen(pen)
+        # 这一行，彻底治好左上角那个黑角和直角，画出一个完美的 20px 边框
+        painter.drawRoundedRect(1, 1, self.width() - 2, self.height() - 2, 19, 19)
 
 class CircularFavicon(QWidget):
-    """封装层：整合黑色外阴影与白色内光晕"""
     def __init__(self, size=140, default_img_path="", parent=None):
         super().__init__(parent)
         self.setFixedSize(size, size)
-        
-        # ==================================
-        # 底层：负责黑色凸起阴影
-        # ==================================
-        self.shadow_layer = QWidget(self)
-        self.shadow_layer.setFixedSize(size, size)
-        # 用 QSS 画一个纯黑的圆作为阴影的发光体
-        self.shadow_layer.setStyleSheet(f"background-color: black; border-radius: {size//2}px;")
-        
-        outer_shadow = QGraphicsDropShadowEffect(self)
-        outer_shadow.setBlurRadius(40)
-        outer_shadow.setColor(QColor(0, 0, 0, 180)) # 深色阴影
-        outer_shadow.setOffset(0, 8)
-        self.shadow_layer.setGraphicsEffect(outer_shadow)
 
-        # ==================================
-        # 顶层：负责画图 + 白色高级光晕
-        # ==================================
-        # 这一层叠在 shadow_layer 正上方
-        self.glow_layer = CircularImageLayer(size, parent=self)
-        
-        inner_glow = QGraphicsDropShadowEffect(self)
-        inner_glow.setBlurRadius(30)
-        inner_glow.setColor(QColor(255, 255, 255, 120)) # 半透明白色光晕
-        inner_glow.setOffset(0, 0)
-        self.glow_layer.setGraphicsEffect(inner_glow)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(30)
+        shadow.setColor(QColor(0, 0, 0, 180))
+        shadow.setOffset(0, 8)
+        self.setGraphicsEffect(shadow)
 
-        # ==================================
-        # 数据加载逻辑
-        # ==================================
         self.default_pixmap = QPixmap()
         if default_img_path and os.path.exists(default_img_path):
             self.default_pixmap = QPixmap(default_img_path)
-            self.glow_layer.set_pixmap(self.default_pixmap)
+            
+        self.current_pixmap = self.default_pixmap
 
         self.network_manager = QNetworkAccessManager(self)
         self.network_manager.finished.connect(self._on_image_downloaded)
 
     def load_from_url(self, url_str: str):
-        # 切换电台时，瞬间切回默认图
-        self.glow_layer.set_pixmap(self.default_pixmap)
+        self.current_pixmap = self.default_pixmap
+        self.update() # 触发 paintEvent 刷新
         
         if not url_str: return
         request = QNetworkRequest(QUrl(url_str))
@@ -109,8 +104,42 @@ class CircularFavicon(QWidget):
             img_data = reply.readAll()
             pixmap = QPixmap()
             if pixmap.loadFromData(img_data) and not pixmap.isNull():
-                self.glow_layer.set_pixmap(pixmap)
+                self.current_pixmap = pixmap
+                self.update() # 触发 paintEvent 刷新
         reply.deleteLater()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)          # 开启抗锯齿
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform) # 开启平滑图像缩放
+
+        rect = self.rect()
+        
+        draw_rect = rect.adjusted(1, 1, -1, -1)
+
+        path = QPainterPath()
+        path.addEllipse(draw_rect)
+        painter.setClipPath(path)
+
+        if not self.current_pixmap.isNull():
+            scaled = self.current_pixmap.scaled(
+                draw_rect.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            
+            x = draw_rect.x() + (draw_rect.width() - scaled.width()) // 2
+            y = draw_rect.y() + (draw_rect.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+        else:
+            painter.fillRect(draw_rect, QColor("#1A1A1A"))
+
+        painter.setClipping(False)
+        
+        pen = QPen(QColor(255, 255, 255, 100)) # rgba(255, 255, 255, 100)
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.drawEllipse(draw_rect)
         
 class InitializationWorker(QObject):
     status_updated = Signal(str) 
@@ -143,7 +172,7 @@ class QImageButton(QWidget):
                  normal_pixmap: QPixmap,
                  hover_pixmap: QPixmap,
                  disabled_pixmap: QPixmap,
-                 callback=None, parent=None):
+                 callback=None, parent=None, need_blur=True):
         super().__init__(parent)
         
         self.setFixedSize(size[0], size[1])
@@ -156,6 +185,13 @@ class QImageButton(QWidget):
         self.hovered = False
         self._is_enabled = True 
         self.setMouseTracking(True) 
+        
+        if need_blur:
+            shadow = QGraphicsDropShadowEffect(self)
+            shadow.setBlurRadius(30)
+            shadow.setColor(QColor(0, 0, 0, 180))
+            shadow.setOffset(0, 8)
+            self.setGraphicsEffect(shadow)
 
     def setEnabled(self, enabled: bool):
         self._is_enabled = enabled
@@ -413,7 +449,8 @@ class StationItemWidget(QWidget):
         self.btn_play = QImageButton((28, 28), 
             self.assets["button-play"], 
             self.assets.get("button-play-hover", self.assets["button-play"]), 
-            self.assets.get("button-play-disable", self.assets["button-play"]))
+            self.assets.get("button-play-disable", self.assets["button-play"]),
+            None, None, False)
         
         layout.addWidget(self.icon_label)
         layout.addWidget(self.name_label)
@@ -449,6 +486,23 @@ class StationItemWidget(QWidget):
             self.icon_label.setText("🎧")
             
         self.btn_play.update()
+        
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        
+        painter = QPainter(self)
+        
+        y_pos = self.height() - 1
+        gradient = QLinearGradient(0, y_pos, self.width(), y_pos)
+        
+        gradient.setColorAt(0.0, QColor("#2d3236"))
+        gradient.setColorAt(0.5, QColor("#7d8590"))
+        gradient.setColorAt(1.0, QColor("#2d3236"))
+        
+        pen = QPen(QBrush(gradient), 1)
+        painter.setPen(pen)
+        
+        painter.drawLine(0, y_pos, self.width(), y_pos)
 
 class ScrollingLabel(QWidget):
     def __init__(self, text, font: QFont, color: QColor = Qt.GlobalColor.black, parent=None):
@@ -547,18 +601,17 @@ class InternetRadioGadget(BaseGadget):
             self.assets[key] = QPixmap(path)
 
     def setup_ui(self):
-        self.setFixedWidth(320)
-        
         top_layout = QVBoxLayout(self)
         top_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.main_container = QWidget(self)
+        self.main_container = AdvancedBackgroundContainer(self)
         self.main_container.setObjectName("MainContainer")
+        self.main_container.setAttribute(Qt.WA_StyledBackground, True)
         self.main_container.setStyleSheet("""
             QWidget#MainContainer {
-                background-color: transparent; /* 【关键】背景透明 */
-                border: 1px solid rgba(255, 255, 255, 0.15); /* 边框改成半透明的白边，更有玻璃质感 */
-                border-radius: 20px;
+                background-color: transparent; /* 这里决定了大背景是白的 */
+                border: 2px solid black;   /* 2像素黑色外边框 */
+                border-radius: 20px;       /* 全局圆角 */
             }
         """)
         
@@ -566,17 +619,16 @@ class InternetRadioGadget(BaseGadget):
         
         self.bg_label = QLabel(self.main_container)
         self.bg_label.setScaledContents(True)
-        # 添加模糊滤镜
+        
         blur_effect = QGraphicsBlurEffect()
-        blur_effect.setBlurRadius(50) # 半径越大越模糊
+        blur_effect.setBlurRadius(50)
         self.bg_label.setGraphicsEffect(blur_effect)
 
-        # 层级 2：暗色半透明遮罩 (盖在背景图上)
         self.dark_overlay = QWidget(self.main_container)
-        self.dark_overlay.setStyleSheet("""
-            background-color: rgba(18, 22, 28, 0.75); /* 深灰偏蓝的半透明遮罩 */
-            border-radius: 20px;
-        """)
+        #self.dark_overlay.setStyleSheet("""
+        #    background-color: rgba(18, 22, 28, 0.75); /* 深灰偏蓝的半透明遮罩 */
+        #    border-radius: 0px;
+        #""")
 
         self.main_layout = QVBoxLayout(self.main_container)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -615,8 +667,6 @@ class InternetRadioGadget(BaseGadget):
         self.content_area = QWidget()
         self.content_layout = None
         self.main_layout.addWidget(self.content_area)
-        
-        
 
         self.sidebar_widget = QWidget()
         sidebar_vbox = QVBoxLayout(self.sidebar_widget)
@@ -644,18 +694,16 @@ class InternetRadioGadget(BaseGadget):
             QListWidget {
                 background-color: transparent;
                 border: none;
-                outline: none; /* 去掉点击时的虚线框 */
+                outline: none; 
             }
             QListWidget::item {
-                border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* 极弱的分割线 */
-                color: #d3d7da; /* 文字浅灰 */
+                color: #d3d7da;
             }
             QListWidget::item:selected {
-                background-color: rgba(255, 255, 255, 0.1); /* 选中时微微发亮 */
+                background-color: rgba(255, 255, 255, 0.1); 
                 border-radius: 8px;
             }
             
-            /* --- 现代胶囊悬浮滚动条 --- */
             QScrollBar:vertical {
                 border: none;
                 background: transparent;
@@ -762,31 +810,40 @@ class InternetRadioGadget(BaseGadget):
         self.slider_vol = QSlider(Qt.Horizontal)
         self.slider_vol.setRange(0, 100)
         self.slider_vol.setValue(self.last_volume)
-        self.slider_vol.setStyleSheet(f"""
-            QSlider::groove:horizontal {{
+        self.slider_vol.setStyleSheet("""
+            QSlider::groove:horizontal {
                 border-radius: 2px;
                 height: 4px;
-                background: #E0E0E0; /* 保持纤细滑槽 */
-            }}
-            QSlider::sub-page:horizontal {{
-                background: black; /* 保持已划过区域为黑色 */
+            }
+            QSlider::add-page:horizontal {
+                background: #181818; 
                 border-radius: 2px;
-            }}
-            
-            /* --- 【核心修改】：使用 PNG 图片替换默认 Handle --- */
-            QSlider::handle:horizontal {{
-                background-image: url({handle_img}); /* 指向你的图片 */
-                width: 14px;  /* 必须设置，并且和图片尺寸一致 */
-                height: 14px;
-                margin: -5px 0; /* 用于让 14px 的 handle 在 4px 的 groove 中居中 */
-                border-radius: 7px; /* 确保 QSS 将其处理为圆形裁剪 */
-            }}
-            QSlider::handle:horizontal:hover {{
-                background-image: url({handle_hover_img}); /* 悬停图片 */
-            }}
-            QSlider::handle:horizontal:disabled {{
-                background-image: url({handle_hover_img}); /* 禁用图片 */
-            }}
+            }
+            QSlider::sub-page:horizontal {
+                background: #080808; 
+                border-radius: 2px;
+            }
+            QSlider::handle:horizontal {
+                background-color: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, 
+                                                 fx:0.5, fy:0.5, 
+                                                 stop:0 #565a65,    
+                                                 stop:0.4 #4d515a,  
+                                                 stop:0.8 #292931,  
+                                                 stop:1 #CCCCCC);   
+                width: 16px;
+                height: 16px;
+                margin: -6px 0; 
+                border-radius: 8px; 
+                border: 1px solid #777777; 
+            }
+            QSlider::handle:horizontal:hover {
+                background-color: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, 
+                                                 fx:0.5, fy:0.5, 
+                                                 stop:0 #727a85, 
+                                                 stop:0.6 #5e646f, 
+                                                 stop:0.9 #333333, 
+                                                 stop:1 #DDDDDD);
+            }
         """)
         
         self.slider_vol.valueChanged.connect(self.change_volume)
@@ -802,35 +859,27 @@ class InternetRadioGadget(BaseGadget):
         
         self.apply_view_layout()
         
-    def resizeEvent(self, event):
-        """确保背景图和遮罩始终铺满整个主容器"""
-        super().resizeEvent(event)
-        if hasattr(self, 'main_container') and hasattr(self, 'bg_label'):
-            self.bg_label.resize(self.main_container.size())
-            self.dark_overlay.resize(self.main_container.size())
-        
     def apply_view_layout(self):
-        """根据 is_landscape 状态重新排布界面"""
-        
         old_layout = self.content_area.layout()
         if old_layout:
-            # 1. 先把我们辛辛苦苦写的控件从旧布局里摘出来（防止被一起销毁）
             old_layout.removeWidget(self.sidebar_widget)
             old_layout.removeWidget(self.player_widget)
             
             QWidget().setLayout(old_layout)
 
+        self.setMinimumSize(1, 1)
+        
+        self.main_container.update_background_mode(self.is_landscape, self.gadget_assets_path)
+        
         if self.is_landscape:
             new_layout = QHBoxLayout(self.content_area)
             new_layout.addWidget(self.sidebar_widget, 1)
             new_layout.addWidget(self.player_widget, 1)
-            self.setFixedWidth(600)
-            self.resize(600, 300) 
+            self.resize(600, 420) 
         else:
             new_layout = QVBoxLayout(self.content_area)
             new_layout.addWidget(self.player_widget)
             new_layout.addWidget(self.sidebar_widget)
-            self.setFixedWidth(320)
             self.resize(320, 600)
 
         self.content_area.setLayout(new_layout)
